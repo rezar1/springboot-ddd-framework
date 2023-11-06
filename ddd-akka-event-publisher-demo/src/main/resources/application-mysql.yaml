@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: event-publisher-demo
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/Rezar?zeroDateTimeBehavior=convertToNull&useSSL=false&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=True
+    username: root
+    password: root123456 #待调整
+  jpa:
+    hibernate:
+      ddl-auto: update
+      naming:
+        implicit-strategy: org.hibernate.boot.model.naming.ImplicitNamingStrategyJpaCompliantImpl
+    database-platform: com.zero.ddd.core.jpa.dialect.MysqlConfig
+    show-sql: false
+    
+akka:
+  serverHostName: 127.0.0.1     # 本地自定义，实际部署可以去掉，默认按照useLocalHost取内网ip作为集群节点的hostName
+  useLocalHost: true            # 启用内网ip
+  clusterName: publisher-demo   # 集群名称，可不指定
+  port: 8001                    # 当前服务节点启用的端口号
+  seedNodes:
+    - 127.0.0.1:8001            # 种子节点，可了解下gossip协议
+    - 127.0.0.1:8002
+    - 127.0.0.1:8003

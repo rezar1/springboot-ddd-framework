@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<included>
+    <property name="LOG_PATH" value="logs"/>
+    <property name="HISTORICAL_LOG_PATH" value="logs/historical"/>
+    <property name="CONSOLE_LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS}\t%X{logger_id}\t%5p\t%t\t%c{1}:%L - %m%n"/>
+
+    <appender name="akka-cluster-rolliing-appender" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <File>${LOG_PATH}/akka-cluster.log</File>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <FileNamePattern>${HISTORICAL_LOG_PATH}/akka-cluster.%d{yyyy-MM-dd}.log</FileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <charset>UTF-8</charset>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+    
+    <appender name="akka-cluster-async-appender" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="akka-cluster-rolliing-appender" />
+    </appender>
+    
+    <logger name="akka" level="INFO"  additivity="false">
+        <appender-ref ref="akka-cluster-async-appender" />
+    </logger>
+    
+</included>

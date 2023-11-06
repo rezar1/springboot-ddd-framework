@@ -1,0 +1,31 @@
+分布式锁实现原理:
+
+A:
+客户端发送加锁申请到es节点
+es节点处理某个锁路径的加锁请求，判断当前锁是否存在
+	*.若存在，判断是否已锁定
+		* 未锁定
+			进行锁定
+		* 已锁定
+			监控该锁的释放，并在释放的时候通知所有申请加锁客户端
+	*.若不存在，进行锁定
+	
+	
+锁的释放方式:
+	1. 主动释放
+		* 正常流程，重新竞争锁并通知各加锁客户端
+	2. 客户端断开
+	3. es节点被释放或重新分片
+	
+B:
+以进程作为锁竞争单元(ClientLockActor host:port)
+
+	1. 某个加锁path, 客户端先注册到本地LockActor,归总
+	2. 以进程作为控制单元向ServerLockActor发送加锁请求
+	3. 进行A流程
+	4. ClientLockActor随机选择一个线程最终执行
+	
+ClientLockActor启动申请向ServerLockActor注册自身
+
+ServerLockActor(ES)
+cla 申请锁

@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: event-publisher-demo
+  datasource:
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:file:~/testdb;AUTO_SERVER=TRUE;mode=mysql
+    username: root
+    password: 123456
+  jpa:
+    hibernate:
+      ddl-auto: update
+      naming:
+        implicit-strategy: org.hibernate.boot.model.naming.ImplicitNamingStrategyJpaCompliantImpl
+    database-platform: org.hibernate.dialect.H2Dialect
+    show-sql: true
+    
+akka:
+  serverHostName: 127.0.0.1     # 本地自定义，实际部署可以去掉，默认按照useLocalHost取内网ip作为集群节点的hostName
+  useLocalHost: true            # 启用内网ip
+  clusterName: publisher-demo   # 集群名称，可不指定
+  port: 8001                    # 当前服务节点启用的端口号
+  seedNodes:
+    - 127.0.0.1:8001            # 种子节点，可了解下gossip协议
+    - 127.0.0.1:8002
+    - 127.0.0.1:8003

@@ -1,0 +1,2 @@
+# Auto Configure
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=com.zero.ddd.event.publisher.mongodb.sync.EventPublisherByMongoDBStarter

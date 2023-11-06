@@ -1,0 +1,5 @@
+*.cq4 filter=lfs diff=lfs merge=lfs -text
+ddd-akka-event-publisher/test-90240938745125/20230314-0956.cq4 filter=lfs diff=lfs merge=lfs -text
+ddd-akka-event-publisher/test-67553664998041/20230314F.cq4 filter=lfs diff=lfs merge=lfs -text
+ddd-akka-event-publisher/test-56534329222458/20230226F.cq4 filter=lfs diff=lfs merge=lfs -text
+ddd-akka-event-publisher/test-56599906713833/20230226F.cq4 filter=lfs diff=lfs merge=lfs -text
