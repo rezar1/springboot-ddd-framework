@@ -49,15 +49,15 @@ springboot-ddd-framework 提供了一些在中小型微服务集群内落地DDD�
 	
 	<dependency>
 		<groupId>com.zero.ddd</groupId>
-		<artifactId>ddd-akka-event-publisher-mysql</artifactId>
+		<artifactId>ddd-akka-event-publisher-relational-database</artifactId>
 		<version>${ddd.version}</version>
 	</dependency>
 	
 	<dependency>
-		<groupId>com.zero.ddd</groupId>
-		<artifactId>ddd-akka-event-publisher</artifactId>
-		<version>${ddd.version}</version>
-	</dependency>
+			<groupId>com.zero.ddd</groupId>
+			<artifactId>ddd-akka-distributedJob</artifactId>
+			<version>${project.parent.version}</version>
+		</dependency>
 
 	<repositories>
 		<repository>
