@@ -35,9 +35,9 @@ public class TestCronExpression {
 
 	@Test
 	public void test() {
-		String data = "2023-09-14 23:59:40.021";
+		String data = "2023-11-08 23:59:40.017";
 		String format = "yyyy-MM-dd HH:mm:ss.SSS";
-		JobScheduledConfig calc = new JobScheduledConfig(3000, "0/20 * * * * ?", null);
+		JobScheduledConfig calc = new JobScheduledConfig(3000, "0/40 * * * * ?", null);
 		log.info("next:{}", calc.nextExecutionTime(LocalDateTime.parse(data, DateTimeFormatter.ofPattern(format))));
 	}
 

@@ -130,10 +130,13 @@ public class JobReplicatedCache {
 		public final ActorRef<Cached> replyTo;
 		public final GetResponse<LWWMap<String, JobInstanceState>> rsp;
 
-		private InternalGetResponse(String key, ActorRef<Cached> replyTo, GetResponse<LWWMap<String, JobInstanceState>> rsp) {
+		private InternalGetResponse(
+				String key, 
+				ActorRef<Cached> replyTo, 
+				GetResponse<LWWMap<String, JobInstanceState>> rsp) {
 			this.key = key;
-			this.replyTo = replyTo;
 			this.rsp = rsp;
+			this.replyTo = replyTo;
 		}
 	}
 
@@ -158,8 +161,8 @@ public class JobReplicatedCache {
 				});
 	}
 
-	private final ReplicatorMessageAdapter<JobCacheCommand, LWWMap<String, JobInstanceState>> replicator;
 	private final SelfUniqueAddress node;
+	private final ReplicatorMessageAdapter<JobCacheCommand, LWWMap<String, JobInstanceState>> replicator;
 
 	public JobReplicatedCache(
 			ActorContext<JobCacheCommand> context,
@@ -205,7 +208,9 @@ public class JobReplicatedCache {
 		return Behaviors.same();
 	}
 
-	private Behavior<JobCacheCommand> receiveEvict(String key, ActorRef<Done> replyTo) {
+	private Behavior<JobCacheCommand> receiveEvict(
+			String key, 
+			ActorRef<Done> replyTo) {
 		replicator.askUpdate(
 				askReplyTo -> 
 					new Update<>(

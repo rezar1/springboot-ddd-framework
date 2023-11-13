@@ -12,18 +12,15 @@
 	<artifactId>ddd-akka-distributedJob</artifactId>
 	<name>ddd-akka-distributedJob</name>
 	<url>http://maven.apache.org</url>
+	
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 	</properties>
+	
 	<dependencies>
 		<dependency>
 			<groupId>com.zero.ddd</groupId>
 			<artifactId>ddd-akka-cluster-core</artifactId>
-			<version>${project.parent.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>com.zero.ddd</groupId>
-			<artifactId>ddd-core</artifactId>
 			<version>${project.parent.version}</version>
 		</dependency>
 		<dependency>
@@ -37,4 +34,5 @@
 			<version>2.12.3</version>
 		</dependency>
 	</dependencies>
+	
 </project>

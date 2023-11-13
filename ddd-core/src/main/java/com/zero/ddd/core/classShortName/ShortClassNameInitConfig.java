@@ -43,10 +43,13 @@ public class ShortClassNameInitConfig implements ImportBeanDefinitionRegistrar {
     
     private Set<Class<?>> scanPackagesAndRetTargetClass(
     		List<String> scanPackages) {
+    	log.info(
+    			"ShortClassNameInitConfig classLoader:{}", 
+    			Thread.currentThread().getContextClassLoader());
     	ConfigurationBuilder configurationBuilder = 
     			new ConfigurationBuilder()
     			.addClassLoader(
-    					ShortClassNameInitConfig.class.getClassLoader())
+    					Thread.currentThread().getContextClassLoader())
     			.addScanners(
     					new TypeAnnotationsScanner());
 		for (String scanPackage : scanPackages) {

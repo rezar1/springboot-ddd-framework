@@ -51,7 +51,7 @@ public class JobEndpoint {
 				LocalDateTime.now());
 	}
 	
-	public LocalDateTime nextExtExecutionTime(
+	public LocalDateTime nextExecutionTime(
 			LocalDateTime preStartedAt) {
 		LocalDateTime nextExtExecutionTime = 
 				jobScheduledConfig.nextExecutionTime(preStartedAt);
@@ -68,7 +68,7 @@ public class JobEndpoint {
 			LocalDateTime preStartedAt) {
 		return Duration.between(
 				LocalDateTime.now(), 
-				this.nextExtExecutionTime(
+				this.nextExecutionTime(
 						preStartedAt));
 	}
 
@@ -91,7 +91,6 @@ public class JobEndpoint {
 									ChronoUnit.MILLIS);
 				})
 				.orElse(null);
-				
 	}
 
 	public Optional<JobScheudleTimeoutListener> jobScheduleTimeoutListener() {

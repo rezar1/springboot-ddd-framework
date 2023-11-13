@@ -227,8 +227,8 @@ public class JobScheduler {
 			return Behaviors.receive(JobScheduledCommand.class)
 					.onMessage(CommandDelivery.class, this::onDelivery)
 					.onMessage(InnerDBError.class, JobScheduler::onDBError)
-					.onMessage(TaskWorkerListingResponse.class, this::updateOnlineWorkerList)
 					.onMessage(JobScheduleTimeout.class, this::scheduleTimeout)
+					.onMessage(TaskWorkerListingResponse.class, this::updateOnlineWorkerList)
 					.onMessageEquals(ScheduleJobOperation.START_JOB_MASTER_ROOT_REQUEST, this::submitRootTask)
 					.build();
 		}
@@ -279,7 +279,6 @@ public class JobScheduler {
 			return Behaviors.same();
 		}
 		
-		// TODO 在超时执行后，计算的startedAt时间不应该是失效的那个时间
 		private void startJobScheduleTimeout(
 				int jobCircle,
 				LocalDateTime startedAt) {
@@ -315,19 +314,24 @@ public class JobScheduler {
 		private void startNextScheduleTrigger() {
 			try {
 				LocalDateTime nextExtExecutionTime = 
-						this.job.nextExtExecutionTime(
+						this.job.nextExecutionTime(
 								this.jobCalculateTime());
 				// 如果根据上一次任务的时间计算的下次调度时间已经过期，直接开始一次调度
-				this.currentScheduleAt = 
-						nextExtExecutionTime.isBefore(LocalDateTime.now()) ? 
-								LocalDateTime.now() : nextExtExecutionTime;
-				log.info("作业:[{}] 将在:[{}]时间点执行初始调度", this.job.jobShowName(), currentScheduleAt);
+				this.configCurrentScheduleAt(
+						nextExtExecutionTime.isBefore(
+								LocalDateTime.now()) ? 
+										LocalDateTime.now() : nextExtExecutionTime);
 				this.context.scheduleOnce(
 						 Duration.between(
 									LocalDateTime.now(), 
-									currentScheduleAt),
+									this.currentScheduleAt()),
 						this.context.getSelf(),
 						ScheduleJobOperation.START_JOB_MASTER_ROOT_REQUEST);
+				// bug-ste1: 这个地方打印的是[[同步晓活动订单表] 将在:[2023-11-09T00:00]时间点执行初始调度]
+				log.info(
+						"作业:[{}] 将在:[{}]时间点执行初始调度", 
+						this.job.jobShowName(),
+						this.currentScheduleAt());
 			} catch (Exception e) {
 				log.error("Error:{}", e);
 			}
@@ -404,7 +408,6 @@ public class JobScheduler {
 								this.assignTaskToWorker(waitDispatchTask);
 								this.confirmToWorker(confirmTo);
 							} else {
-								// TODO 重置状态
 								log.error("作业:[" + this.job.jobShowName() + "] 状态更新异常", error);
 								throw new IllegalStateException(
 										"作业:[" + this.job.jobShowName() + "] 状态更新异常",
@@ -503,12 +506,14 @@ public class JobScheduler {
 		private void checkJobIsCompleted() {
 			if (this.state.isCompleted()) {
 				// 当前轮次的任务已完成
+				// bug-ste2: 2023-11-09 00:00:00.187 default [trace-akka.actor.default-dispatcher-1] INFO  job - 作业:[同步晓活动订单表] 调度轮次:[371196] 预期开始时间:[2023-11-09T23:59:57.020] 调度结束
+				// 即currentScheduleAt从[[2023-11-09T00:00]] 变成了[2023-11-09T23:59:57.020]; 不知道什么原因???
 				this.logCurrentJobCircleState();
 				this.afterJobCompleted();
 				// 结束当前调度
 				this.state.completedTask();
 				// 应该立即开启新的一轮调用，否则等待定时器触发
-				if (this.currentScheduleAt.isBefore(LocalDateTime.now())) {
+				if (this.currentScheduleAt().isBefore(LocalDateTime.now())) {
 					this.startNextScheduleTrigger();
 				}
 			}
@@ -537,11 +542,27 @@ public class JobScheduler {
 					"作业:[{}] 调度轮次:[{}] 预期开始时间:[{}] 调度结束，轮次调度情况:{}", 
 					this.job.jobShowName(),
 					this.state.getJobCircle(),
-					this.currentScheduleAt,
+					this.currentScheduleAt(),
 					JacksonUtil.obj2Str(this.state));
+		}
+		
+		private synchronized void configCurrentScheduleAt(
+				LocalDateTime currentScheduleAt) {
+			this.currentScheduleAt = currentScheduleAt;
+			log.info(
+					"作业:[{}] 设置下次触发时间:{}", 
+					this.job.jobShowName(), 
+					currentScheduleAt);
+		}
+		
+		private synchronized LocalDateTime currentScheduleAt() {
+			return 
+					this.currentScheduleAt;
 		}
 
 	}
+	
+	// -------- 接口/类定义 --------
 	
 	public static interface JobScheduledCommand extends SelfProtoBufObject {
 		
