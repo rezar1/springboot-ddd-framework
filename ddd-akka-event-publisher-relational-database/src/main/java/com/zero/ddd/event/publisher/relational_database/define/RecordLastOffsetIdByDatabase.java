@@ -79,7 +79,7 @@ public class RecordLastOffsetIdByDatabase implements IRecordLastOffsetId {
 					synPartitionId,
 					lastOffset);
 		} catch (DataAccessException e) {
-			e.printStackTrace();
+			throw new IllegalStateException(e);
 		}
 	}
 

@@ -16,12 +16,12 @@ import lombok.extern.slf4j.Slf4j;
  *
  */
 @Slf4j
-public class RecordEventConsumeResultByMysql implements IRecordEventConsumeResult {
+public class RecordEventConsumeResultByDatabase implements IRecordEventConsumeResult {
 	
 	private JdbcTemplate jdbcTemplate;
 	private String appendSql;
 
-    public RecordEventConsumeResultByMysql(
+    public RecordEventConsumeResultByDatabase(
             JdbcTemplate jdbcTemplate,
             String recordTableName) {
         if (GU.isNullOrEmpty(recordTableName)) {
