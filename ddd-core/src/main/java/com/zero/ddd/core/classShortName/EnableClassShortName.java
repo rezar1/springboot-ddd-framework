@@ -32,6 +32,6 @@ import org.springframework.context.annotation.Import;
 @Import({ ShortClassNameInitConfig.class })
 public @interface EnableClassShortName {
 
-    String[] packagePrefix() default {}; // 查找的包前缀
+    String[] packagePrefix(); // 查找的包前缀
 
 }
