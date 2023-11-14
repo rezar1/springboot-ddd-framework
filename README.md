@@ -45,7 +45,7 @@ springboot-ddd-framework 提供了一些在中小型微服务集群内落地DDD�
 ## 依赖
 
 ```xml
-	<ddd.version>0.0.1-RELEASE</ddd.version>
+	<ddd.version>0.0.4-RELEASE</ddd.version>
 	
 	<dependency>
 		<groupId>com.zero.ddd</groupId>
@@ -56,13 +56,13 @@ springboot-ddd-framework 提供了一些在中小型微服务集群内落地DDD�
 	<dependency>
 			<groupId>com.zero.ddd</groupId>
 			<artifactId>ddd-akka-distributedJob</artifactId>
-			<version>${project.parent.version}</version>
+			<version>${ddd.version}</version>
 		</dependency>
 
 	<repositories>
 		<repository>
-			<id>rezar-maven-repo</id>
-			<url>https://github.com/rezar1/maven-rpeo/main</url>
+			<id>release-mvn-repo</id>
+			<url>https://raw.githubusercontent.com/rezar1/maven-rpeo/release/</url>
 		</repository>
 	</repositories>
 
