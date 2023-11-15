@@ -14,7 +14,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.collect.Sets;
 import com.zero.ddd.akka.cluster.core.initializer.serializer.SelfProtoBufObject;
 import com.zero.ddd.akka.event.publisher2.event.EventSynchronizer;
-import com.zero.ddd.akka.event.publisher2.event.TypeShardingHashValGenerator;
+import com.zero.ddd.akka.event.publisher2.event.TypeFilterAndShardingHashValGenerator;
 import com.zero.ddd.akka.event.publisher2.helper.ConsistencyHashAlgorithm;
 import com.zero.ddd.akka.event.publisher2.helper.ConsistencyHashAlgorithm.PartitionChanged;
 import com.zero.helper.GU;
@@ -177,7 +177,7 @@ public class SynchronizerState implements SelfProtoBufObject, Cloneable {
 	}
 
 	public ShardingHashValGenerator shardingHashValGenerator() {
-		Map<String, TypeShardingHashValGenerator> typeShardingHashValExpression = 
+		Map<String, TypeFilterAndShardingHashValGenerator> typeShardingHashValExpression = 
 				this.eventSynchronizer.typeShardingHashValGenerator();
 		return (typeName, eventBody) -> {
 			if (typeShardingHashValExpression.containsKey(typeName)) {

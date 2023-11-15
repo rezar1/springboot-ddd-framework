@@ -49,7 +49,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 	private final NamedParameterJdbcTemplate jdbcTemplate;
 	private final String storedEventLoadSql;
 	private final String partitionStoredEventLoadSql;
-	private final Duration storedEventPollDuration;
+	private final Duration storedEventPullDuration;
 	private final Duration partitionEventPollDuration;
 	
 	private static final DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
@@ -62,7 +62,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 			Duration partitionEventPollDuration) {
 		this.backoff = this.initBackoff();
 		this.jdbcTemplate = jdbcTemplate;
-		this.storedEventPollDuration = storedEventPollDuration;
+		this.storedEventPullDuration = storedEventPollDuration;
 		this.partitionEventPollDuration = partitionEventPollDuration;
 		this.storedEventLoadSql = 
 				String.format(
@@ -116,7 +116,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 				"storedEventPublisher:[" + StringUtils.join(awareEventTypes, ",") + "]";
 		return 
 				Flux.interval(
-						storedEventPollDuration.plus(
+						storedEventPullDuration.plus(
 								Duration.ofMillis(
 										RandomUtils.nextLong(
 												1,
@@ -150,7 +150,8 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 						return false;
 					}
 					storedEventBitMap.addLong(eventIdVal);
-					lastSyncTime.set(storedEvent.getEventOffset());
+					lastSyncTime.set(
+							storedEvent.getEventOffset());
 					return true;
 				})
 				.map(event -> {
@@ -288,6 +289,5 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 		private final String eventOffset;
 		private final StoredEvent storedEvent;
 	}
-	
 
 }

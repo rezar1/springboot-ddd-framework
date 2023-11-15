@@ -55,7 +55,7 @@ public class EventSynchronizer {
 		return this.appName + "-" + this.synchornizerId;
 	}
 	
-	public Map<String, TypeShardingHashValGenerator> typeShardingHashValGenerator() {
+	public Map<String, TypeFilterAndShardingHashValGenerator> typeShardingHashValGenerator() {
 		return Optional.ofNullable(
 				this.typeShardingHashValExpression)
 				.map(expressions -> {
@@ -65,7 +65,7 @@ public class EventSynchronizer {
 								return 
 										Pair.of(
 												entry.getKey(), 
-												new TypeShardingHashValGenerator(entry.getValue()));
+												new TypeFilterAndShardingHashValGenerator(entry.getValue()));
 							})
 							.collect(Collectors.toMap(Pair::getKey, Pair::getValue));
 				})

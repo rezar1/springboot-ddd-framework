@@ -23,7 +23,7 @@ import lombok.extern.slf4j.Slf4j;
  *
  */
 @Slf4j
-public class TypeShardingHashValGenerator {
+public class TypeFilterAndShardingHashValGenerator {
 	
 	private static final SpelExpressionParser PARSER = new SpelExpressionParser();
 
@@ -35,7 +35,7 @@ public class TypeShardingHashValGenerator {
 	
 	private final StandardEvaluationContext evaluationContext = new StandardEvaluationContext();
 	
-	public TypeShardingHashValGenerator(
+	public TypeFilterAndShardingHashValGenerator(
 			EventTypeExpression elExpression) {
 		this.shardingValExpression = 
 				Optional.ofNullable(

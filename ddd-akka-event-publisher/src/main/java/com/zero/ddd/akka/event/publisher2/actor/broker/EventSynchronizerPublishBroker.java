@@ -21,7 +21,6 @@ import com.zero.ddd.akka.event.publisher2.domain.partitionEvent.PartitionEvent;
 import com.zero.ddd.akka.event.publisher2.domain.partitionEvent.PartitionEventStore;
 import com.zero.ddd.akka.event.publisher2.domain.synchronizerState.PartitionAssignState;
 import com.zero.ddd.akka.event.publisher2.domain.synchronizerState.SynchronizerState;
-import com.zero.ddd.akka.event.publisher2.domain.synchronizerState.SynchronizerState.ShardingHashValGenerator;
 import com.zero.ddd.akka.event.publisher2.event.EventSynchronizer;
 import com.zero.ddd.akka.event.publisher2.event.IRecordLastOffsetId;
 import com.zero.ddd.akka.event.publisher2.publisher.EventPublisherFactory;
@@ -55,6 +54,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
+import lombok.var;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -391,7 +391,11 @@ public class EventSynchronizerPublishBroker {
 			this.partitionKillSwitchMap.put(
 					partition, 
 					killSwitch);
-			log.info("事件主题:[{}] 开启分区:[{}] 的读取, 事件消费者:[{}]", eventSynchronizerId, partition, partitionEventRouteToConsumerId);
+			log.info(
+					"事件主题:[{}] 开启分区:[{}] 的读取, 事件消费者:[{}]", 
+					eventSynchronizerId, 
+					partition, 
+					partitionEventRouteToConsumerId);
 		}
 
 		public void shutdown() {
@@ -445,7 +449,7 @@ public class EventSynchronizerPublishBroker {
 		}
 
 		private void startStoredEventPublisher() {
-			ShardingHashValGenerator shardingHashValGenerator = 
+			var shardingHashValGenerator = 
 					state.shardingHashValGenerator();
 			Flow<StoredEventWrapper, String, UniqueKillSwitch> syncToPartitionFlow = 
 					Flow.of(StoredEventWrapper.class)
