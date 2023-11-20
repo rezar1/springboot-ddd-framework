@@ -66,12 +66,16 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 		this.partitionEventPollDuration = partitionEventPollDuration;
 		this.storedEventLoadSql = 
 				String.format(
-						"select event_id, type_name, event_body, event_time, insert_time from %s where type_name in(:awareTypes) and insert_time >= :insertTime order by insert_time asc limit 10000", 
+						"select event_id, type_name, event_body, event_time, insert_time from %s where type_name in(:awareTypes) and insert_time >= :insertTime order by insert_time asc limit " + this.storedEventLoadBatch(), 
 						storedEventTable);
 		this.partitionStoredEventLoadSql = 
 				String.format(
 						"select event_id, type_name, event_body, event_time, insert_time from %s where synchronizer_id = :eventSynchronizerId and partition_id = :partition and insert_time > :insertTime order by insert_time asc limit 1000", 
 						partitionEventTable);
+	}
+	
+	protected int storedEventLoadBatch() {
+		return 30000;
 	}
 	
 	protected ExponentialBackOff initBackoff() {
