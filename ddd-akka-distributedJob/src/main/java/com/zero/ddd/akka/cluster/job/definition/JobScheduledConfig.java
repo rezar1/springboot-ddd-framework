@@ -4,8 +4,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
-import javax.validation.constraints.NotNull;
-
 import org.springframework.scheduling.support.CronExpression;
 
 import com.zero.ddd.akka.cluster.job.model.vo.ScheduledTimeType;
@@ -84,7 +82,6 @@ public class JobScheduledConfig {
 	@RequiredArgsConstructor
 	private static class SecondDelayNextExecutionTimeCalculater implements NextExecutionTimeCalculater {
 		
-		@NotNull
 		private final Duration secondDelay;
 
 		@Override
