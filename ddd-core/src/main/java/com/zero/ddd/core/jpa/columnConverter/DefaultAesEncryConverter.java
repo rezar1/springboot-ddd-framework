@@ -10,10 +10,11 @@ package com.zero.ddd.core.jpa.columnConverter;
  */
 public class DefaultAesEncryConverter extends AesEncryConverter {
 	
+	private static final String DEFAULT_PERFIX = "_";
 	private static final String DEFAULT_PASSWORD = "4.2q2,wo6jzpzzwyv";
 
 	public DefaultAesEncryConverter() {
-		super(DEFAULT_PASSWORD, "_");
+		super(DEFAULT_PERFIX, DEFAULT_PASSWORD);
 	}
 
 }

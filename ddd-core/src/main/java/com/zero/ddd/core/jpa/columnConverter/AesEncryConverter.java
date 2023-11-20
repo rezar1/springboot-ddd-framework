@@ -62,5 +62,5 @@ public abstract class AesEncryConverter extends AssertionConcern implements Attr
 		return 
 				this.encryPrefix + AesUtil.cipherByDefaultAndBase64(this.password);
 	}
-
+	
 }

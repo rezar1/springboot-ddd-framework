@@ -6,6 +6,8 @@ import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.persistence.Converter;
+
 import com.zero.helper.GU;
 import com.zero.helper.JacksonUtil;
 
@@ -20,6 +22,7 @@ import lombok.Data;
  *
  */
 @SuppressWarnings("rawtypes")
+@Converter(autoApply = true)
 public class ListToJsonConverter extends AbstractObjToStringConverter<List, String> {
 
     private static final String jsonDataFormat = "$TYPE($Data)";
