@@ -12,6 +12,7 @@ import javax.validation.Validator;
 
 import org.hibernate.validator.HibernateValidator;
 
+import com.zero.ddd.core.exceptions.BusinessException;
 import com.zero.helper.GU;
 
 import lombok.val;
@@ -52,11 +53,15 @@ public class AssertionConcern {
      * 
      * @param validate
      */
-    private <T> void handleConstrantViolations(Set<ConstraintViolation<T>> constraintViolations) {
+    private <T> void handleConstrantViolations(
+    		Set<ConstraintViolation<T>> constraintViolations) {
         if (constraintViolations.size() > 0) {
-            String errMsg = constraintViolations.stream().map(ConstraintViolation::getMessage)
+            String errMsg = 
+            		constraintViolations
+            		.stream()
+            		.map(ConstraintViolation::getMessage)
                     .collect(Collectors.joining("; "));
-            throw new IllegalArgumentException(errMsg);
+            throw new BusinessException(errMsg);
         }
     }
 
