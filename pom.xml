@@ -12,7 +12,7 @@
 	</parent>
 
 	<groupId>com.zero.ddd</groupId>
-	<version>0.0.4-SNAPSHOT</version>
+	<version>0.0.6-SNAPSHOT</version>
 	<artifactId>ddd-parent</artifactId>
 	<packaging>pom</packaging>
 
