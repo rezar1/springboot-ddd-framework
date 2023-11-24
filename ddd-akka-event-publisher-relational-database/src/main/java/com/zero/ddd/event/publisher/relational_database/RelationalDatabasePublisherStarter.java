@@ -1,6 +1,8 @@
 package com.zero.ddd.event.publisher.relational_database;
 
 import java.time.Duration;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -30,15 +32,27 @@ import com.zero.ddd.event.publisher.relational_database.define.RecordLastOffsetI
 public class RelationalDatabasePublisherStarter {
 	
 	@Bean
+	@ConditionalOnMissingBean(name = "monitorStoredEventLoadOffsetScheduledExecutor")
+	public ScheduledExecutorService monitorStoredEventLoadOffsetScheduledExecutor() {
+		return 
+				Executors.newSingleThreadScheduledExecutor(r -> {
+					return 
+							new Thread(r, "DDD_STORED_EVENT加载表记录卡顿检查线程");
+				});
+	}
+	
+	@Bean
 	@ConditionalOnMissingBean(EventPublisherFactory.class)
 	public EventPublisherFactory eventPublisherFactoryByMysql(
 			NamedParameterJdbcTemplate jdbcTemplate,
+			ScheduledExecutorService scheduledExecutorService,
 			@Value("${akka.event.storedEventTable:ddd_stored_event}") String storedEventTableName,
 			@Value("${akka.event.partitionEventTable:ddd_partition_event}") String partitionEventTableName,
 			@Value("${akka.event.storedEventPollMill:678}") long storedEventPollMill,
 			@Value("${akka.event.partitionEventPollMill:789}") long partitionEventPollMill) {
 		return new EventPublisherFactoryByDatabase(
 				jdbcTemplate,
+				scheduledExecutorService,
 				storedEventTableName,
 				partitionEventTableName,
 				Duration.ofMillis(storedEventPollMill),
@@ -74,5 +88,5 @@ public class RelationalDatabasePublisherStarter {
 				jdbcTemplate, 
 				offsetTable);
 	}
-
+	
 }

@@ -10,6 +10,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -31,6 +33,7 @@ import com.zero.helper.GU;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 
@@ -47,21 +50,26 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 	
 	private final ExponentialBackOff backoff;
 	private final NamedParameterJdbcTemplate jdbcTemplate;
+	private final ScheduledExecutorService scheduledExecutorService;
 	private final String storedEventLoadSql;
 	private final String partitionStoredEventLoadSql;
 	private final Duration storedEventPullDuration;
 	private final Duration partitionEventPollDuration;
+	private final RowMapper<StoredEventTimeWrapper> rowMapper;
+	private final RowMapper<PartitionStoredEventTimeWrapper> partitionEventRowMapper;
 	
 	private static final DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
 	
 	public EventPublisherFactoryByDatabase(
 			NamedParameterJdbcTemplate jdbcTemplate,
+			ScheduledExecutorService scheduledExecutorService,
 			String storedEventTable,
 			String partitionEventTable,
 			Duration storedEventPollDuration,
 			Duration partitionEventPollDuration) {
 		this.backoff = this.initBackoff();
 		this.jdbcTemplate = jdbcTemplate;
+		this.scheduledExecutorService = scheduledExecutorService;
 		this.storedEventPullDuration = storedEventPollDuration;
 		this.partitionEventPollDuration = partitionEventPollDuration;
 		this.storedEventLoadSql = 
@@ -72,6 +80,8 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 				String.format(
 						"select event_id, type_name, event_body, event_time, insert_time from %s where synchronizer_id = :eventSynchronizerId and partition_id = :partition and insert_time > :insertTime order by insert_time asc limit 1000", 
 						partitionEventTable);
+		this.rowMapper = this.dddStoredEventRowMapper();
+		this.partitionEventRowMapper = this.partitionEventTableRowMapper();
 	}
 	
 	protected int storedEventLoadBatch() {
@@ -96,28 +106,20 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 	public Publisher<StoredEventWrapper> storedEventPublisher(
 			Optional<String> startAfterOffset,
 			Set<String> awareEventTypes) {
-		Roaring64Bitmap storedEventBitMap = new Roaring64Bitmap();
-		AtomicReference<LocalDateTime> lastSyncTime = 
-				new AtomicReference<LocalDateTime>(
-						startAfterOffset
-						.map(timeStr -> LocalDateTime.parse(timeStr, format))
-						.orElse(LocalDateTime.now()));
 		Map<String,Object> paramMap = Maps.newHashMap();
 		paramMap.put("awareTypes", awareEventTypes);
-		RowMapper<StoredEventTimeWrapper> rowMapper = 
-				new RowMapper<StoredEventTimeWrapper>() {
-					@Override
-					public StoredEventTimeWrapper mapRow(
-							ResultSet rs, 
-							int rowNum) throws SQLException {
-						return 
-								new StoredEventTimeWrapper(
-										rs.getTimestamp("insert_time").toLocalDateTime(),
-										parseStoredEvent(rs));
-					}
-				};
 		String optDesc = 
 				"storedEventPublisher:[" + StringUtils.join(awareEventTypes, ",") + "]";
+		StoredEventOffset storedEventOffset = 
+				new StoredEventOffset(
+						startAfterOffset
+						.map(timeStr -> LocalDateTime.parse(timeStr, format))
+						.orElseGet(LocalDateTime::now));
+		ScheduledFuture<?> scheduleWithFixedDelay = 
+				this.monitorEventOffsetDuringStuck(
+						optDesc,
+						storedEventOffset);
+		Roaring64Bitmap storedEventBitMap = new Roaring64Bitmap();
 		return 
 				Flux.interval(
 						storedEventPullDuration.plus(
@@ -125,11 +127,16 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 										RandomUtils.nextLong(
 												1,
 												180))))
-				.onBackpressureDrop()
+				.onBackpressureDrop(ticket -> {
+					log.warn("optDesc:[{}] 消费速率慢，丢弃当前轮次的调度，等待下一次调度", optDesc);
+				})
+				.doOnTerminate(() -> {
+					scheduleWithFixedDelay.cancel(true);
+				})
 				.flatMap(notUsed -> {
 					paramMap.put(
 							"insertTime", 
-							lastSyncTime.get().plusSeconds(-1));
+							storedEventOffset.lastSyncTime());
 					return Flux.fromIterable(
 							this.operationWithBackoffRetry(
 									optDesc, 
@@ -154,7 +161,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 						return false;
 					}
 					storedEventBitMap.addLong(eventIdVal);
-					lastSyncTime.set(
+					storedEventOffset.updateLastSyncTime(
 							storedEvent.getEventOffset());
 					return true;
 				})
@@ -180,18 +187,6 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 		Map<String,Object> paramMap = Maps.newHashMap();
 		paramMap.put("eventSynchronizerId", eventSynchronizerId);
 		paramMap.put("partition", partition);
-		RowMapper<PartitionStoredEventTimeWrapper> rowMapper = 
-				new RowMapper<PartitionStoredEventTimeWrapper>() {
-			@Override
-			public PartitionStoredEventTimeWrapper mapRow(
-					ResultSet rs, 
-					int rowNum) throws SQLException {
-				return 
-						new PartitionStoredEventTimeWrapper(
-								rs.getString("insert_time"),
-								parseStoredEvent(rs));
-			}
-		};
 		String optDesc = 
 				"partitionEventPublisher:[" + eventSynchronizerId + "]-partition:" + partition;
 		return 
@@ -214,7 +209,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 												this.jdbcTemplate.query(
 														partitionStoredEventLoadSql, 
 														paramMap , 
-														rowMapper);
+														partitionEventRowMapper);
 									}));
 				})
 				.onErrorResume(error -> {
@@ -239,6 +234,45 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 									event.getEventOffset(),
 									event.storedEvent);
 				});
+	}
+	
+	private ScheduledFuture<?> monitorEventOffsetDuringStuck(
+			String optDesc, 
+			StoredEventOffset storedEventOffset) {
+		int random = RandomUtils.nextInt(3111, 6666);
+		int storedEventLoadBatch = this.storedEventLoadBatch();
+		return this.scheduledExecutorService.scheduleWithFixedDelay(
+				() -> {
+					if (storedEventOffset.juedgeDuringLoadStuck()) {
+						log.warn(
+								"操作描述:[{}] 从DDD_STORED_EVENT加载新事件hang住了, 最后同步时间戳:{}. 当前storedEventLoadBatch:{} 请检查事件QPS是否过大, 适当调整该值", 
+								optDesc, 
+								storedEventOffset.getLastSyncTime(),
+								storedEventLoadBatch);
+					}
+				}, 
+				random, 
+				random,
+				TimeUnit.MILLISECONDS);
+	}
+
+	private RowMapper<StoredEventTimeWrapper> dddStoredEventRowMapper() {
+		return 
+				(rs, rowNum) -> {
+					return 
+							new StoredEventTimeWrapper(
+									rs.getTimestamp("insert_time").toLocalDateTime(),
+									this.parseStoredEvent(rs));
+				};
+	}
+	
+	private RowMapper<PartitionStoredEventTimeWrapper> partitionEventTableRowMapper() {
+		return (rs, num) -> {
+			return 
+					new PartitionStoredEventTimeWrapper(
+							rs.getString("insert_time"),
+							parseStoredEvent(rs));
+		};
 	}
 	
 	private <T> List<T> operationWithBackoffRetry(
@@ -278,6 +312,48 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 				rs.getString("type_name"), 
 				rs.getString("event_body"), 
 				rs.getTimestamp("event_time").toLocalDateTime());
+	}
+	
+	@Getter
+	// 竞争不大
+	public static class StoredEventOffset {
+		
+		private volatile LocalDateTime lastSyncTime;
+		private volatile boolean startFromCurrent;
+		
+		private volatile LocalDateTime freezedMonitorDateTime;
+		
+		public StoredEventOffset(
+				LocalDateTime lastSyncTime) {
+			this.lastSyncTime = 
+					lastSyncTime == null ?
+							LocalDateTime.now() : lastSyncTime;
+		}
+		
+		public synchronized boolean juedgeDuringLoadStuck() {
+			if (freezedMonitorDateTime == null
+					|| freezedMonitorDateTime.isBefore(this.lastSyncTime)) {
+				this.freezedMonitorDateTime = this.lastSyncTime;
+			} else {
+				this.startFromCurrent = true;
+			}
+			return true;
+		}
+
+		public synchronized void updateLastSyncTime(
+				LocalDateTime eventOffset) {
+			this.lastSyncTime = eventOffset;
+		}
+
+		public synchronized LocalDateTime lastSyncTime() {
+			try {
+				return this.startFromCurrent ? 
+						this.lastSyncTime : this.lastSyncTime.plusSeconds(-1);
+			} finally {
+				this.startFromCurrent = false;
+			}
+		}
+		
 	}
 	
 	@Data
