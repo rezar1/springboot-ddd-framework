@@ -263,7 +263,10 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 						awareEventTypes);
 		Function<LocalDateTime, Boolean> hasMoreEventJuedger = 
 				time -> {
-					parameterSource.addValue(INSERT_TIME, awareEventTypes);
+					if (time == null) {
+						return false;
+					}
+					parameterSource.addValue(INSERT_TIME, time);
 					Integer queryForObject = 
 							this.jdbcTemplate.queryForObject(
 									storedEventHasMoreLoadEventSql, 
@@ -272,22 +275,22 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 					return 
 							queryForObject != null && queryForObject > 0;
 				};
-		int random = RandomUtils.nextInt(3111, 6666);
+		int random = RandomUtils.nextInt(3333, 6666);
 		int storedEventLoadBatch = this.storedEventLoadBatch();
 		return this.scheduledExecutorService.scheduleWithFixedDelay(
 				() -> {
 					try {
-						LocalDateTime lastSyncTime = storedEventOffset.getLastSyncTime();
+						LocalDateTime lastSyncTime = null;
 						if (storedEventOffset.juedgeDuringLoadStuck()
-								&& hasMoreEventJuedger.apply(lastSyncTime)) {
+								&& hasMoreEventJuedger.apply(lastSyncTime = storedEventOffset.getLastSyncTime())) {
 							log.warn(
-									"操作描述:[{}] 从DDD_STORED_EVENT加载新事件hang住了, 最后同步时间戳:{}. 当前storedEventLoadBatch:{} 请检查事件QPS是否过大, 适当调整该值", 
+									"操作描述:[{}] 从DDD_STORED_EVENT加载新事件可能hang住了, 最后同步时间戳:[{}]. 当前storedEventLoadBatch:{} 请检查事件QPS是否过大, 适当调整该值", 
 									optDesc, 
 									lastSyncTime,
 									storedEventLoadBatch);
 						}
 					} catch (Exception e) {
-						e.printStackTrace();
+						log.error("monitorEventOffsetDuringStuck error:{}", e);
 					}
 				}, 
 				random, 
@@ -373,10 +376,11 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 			if (freezedMonitorDateTime == null
 					|| freezedMonitorDateTime.isBefore(this.lastSyncTime)) {
 				this.freezedMonitorDateTime = this.lastSyncTime;
+				return false;
 			} else {
 				this.startFromCurrent = true;
+				return true;
 			}
-			return true;
 		}
 
 		public synchronized void updateLastSyncTime(
