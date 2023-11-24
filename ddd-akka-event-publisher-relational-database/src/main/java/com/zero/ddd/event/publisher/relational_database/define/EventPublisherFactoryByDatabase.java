@@ -14,6 +14,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import org.apache.commons.lang3.RandomUtils;
@@ -21,6 +22,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.reactivestreams.Publisher;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.util.backoff.BackOffExecution;
 import org.springframework.util.backoff.ExponentialBackOff;
@@ -48,17 +50,21 @@ import reactor.core.publisher.Flux;
 @Slf4j
 public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 	
-	private final ExponentialBackOff backoff;
-	private final NamedParameterJdbcTemplate jdbcTemplate;
-	private final ScheduledExecutorService scheduledExecutorService;
+	private static final String INSERT_TIME = "insertTime";
+	private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
+	
+	
 	private final String storedEventLoadSql;
+	private final String storedEventHasMoreLoadEventSql;
 	private final String partitionStoredEventLoadSql;
 	private final Duration storedEventPullDuration;
 	private final Duration partitionEventPollDuration;
-	private final RowMapper<StoredEventTimeWrapper> rowMapper;
+	private final NamedParameterJdbcTemplate jdbcTemplate;
+	private final ExponentialBackOff backoffForRetryEventLoad;
+	private final ScheduledExecutorService scheduledExecutorService;
+	private final RowMapper<StoredEventTimeWrapper> storedEventRowMapper;
 	private final RowMapper<PartitionStoredEventTimeWrapper> partitionEventRowMapper;
 	
-	private static final DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
 	
 	public EventPublisherFactoryByDatabase(
 			NamedParameterJdbcTemplate jdbcTemplate,
@@ -67,7 +73,6 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 			String partitionEventTable,
 			Duration storedEventPollDuration,
 			Duration partitionEventPollDuration) {
-		this.backoff = this.initBackoff();
 		this.jdbcTemplate = jdbcTemplate;
 		this.scheduledExecutorService = scheduledExecutorService;
 		this.storedEventPullDuration = storedEventPollDuration;
@@ -76,49 +81,43 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 				String.format(
 						"select event_id, type_name, event_body, event_time, insert_time from %s where type_name in(:awareTypes) and insert_time >= :insertTime order by insert_time asc limit " + this.storedEventLoadBatch(), 
 						storedEventTable);
+		this.storedEventHasMoreLoadEventSql = 
+				String.format(
+						"select count(1) from %s where type_name in(:awareTypes) and insert_time >= :insertTime", 
+						storedEventTable);
 		this.partitionStoredEventLoadSql = 
 				String.format(
 						"select event_id, type_name, event_body, event_time, insert_time from %s where synchronizer_id = :eventSynchronizerId and partition_id = :partition and insert_time > :insertTime order by insert_time asc limit 1000", 
 						partitionEventTable);
-		this.rowMapper = this.dddStoredEventRowMapper();
+		this.storedEventRowMapper = this.dddStoredEventRowMapper();
 		this.partitionEventRowMapper = this.partitionEventTableRowMapper();
+		this.backoffForRetryEventLoad = this.initLoadEventFailureRetryBackoff();
 	}
 	
 	protected int storedEventLoadBatch() {
 		return 30000;
 	}
 	
-	protected ExponentialBackOff initBackoff() {
-		long initialInterval = 200;			// 初始间隔
-		long maxInterval = 10 * 1000L;		// 最大间隔
-		long maxElapsedTime = 600 * 1000L;	// 最大时间间隔
-		double multiplier = 1.5;			// 递增倍数（即下次间隔是上次的多少倍）
-		ExponentialBackOff backOff = 
-				new ExponentialBackOff(
-						initialInterval,
-						multiplier);
-		backOff.setMaxInterval(maxInterval);
-		backOff.setMaxElapsedTime(maxElapsedTime);
-		return backOff;
-	}
-
 	@Override
 	public Publisher<StoredEventWrapper> storedEventPublisher(
 			Optional<String> startAfterOffset,
 			Set<String> awareEventTypes) {
-		Map<String,Object> paramMap = Maps.newHashMap();
-		paramMap.put("awareTypes", awareEventTypes);
+		MapSqlParameterSource parameterSource = 
+				new MapSqlParameterSource(
+						"awareTypes", 
+						awareEventTypes);
 		String optDesc = 
 				"storedEventPublisher:[" + StringUtils.join(awareEventTypes, ",") + "]";
 		StoredEventOffset storedEventOffset = 
 				new StoredEventOffset(
 						startAfterOffset
-						.map(timeStr -> LocalDateTime.parse(timeStr, format))
+						.map(timeStr -> LocalDateTime.parse(timeStr, TIME_FORMAT))
 						.orElseGet(LocalDateTime::now));
 		ScheduledFuture<?> scheduleWithFixedDelay = 
 				this.monitorEventOffsetDuringStuck(
 						optDesc,
-						storedEventOffset);
+						storedEventOffset,
+						awareEventTypes);
 		Roaring64Bitmap storedEventBitMap = new Roaring64Bitmap();
 		return 
 				Flux.interval(
@@ -132,10 +131,11 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 				})
 				.doOnTerminate(() -> {
 					scheduleWithFixedDelay.cancel(true);
+					log.info("optDesc:[{}] Terminated", optDesc);
 				})
 				.flatMap(notUsed -> {
-					paramMap.put(
-							"insertTime", 
+					parameterSource.addValue(
+							INSERT_TIME, 
 							storedEventOffset.lastSyncTime());
 					return Flux.fromIterable(
 							this.operationWithBackoffRetry(
@@ -144,8 +144,8 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 										return 
 												this.jdbcTemplate.query(
 														storedEventLoadSql, 
-														paramMap , 
-														rowMapper);
+														parameterSource , 
+														storedEventRowMapper);
 									}));
 				})
 				.onErrorResume(error -> {
@@ -168,7 +168,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 				.map(event -> {
 					return 
 							new StoredEventWrapper(
-									format.format(
+									TIME_FORMAT.format(
 											event.getEventOffset()),
 									event.storedEvent);
 				});
@@ -199,8 +199,11 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 				.onBackpressureDrop(ticket -> {
 					log.warn("eventSynchronizerId:[{}] partition:[{}] 消费速率慢，丢弃当前轮次的调度，等待下一次调度", eventSynchronizerId, partition);
 				})
+				.doOnTerminate(() -> {
+					log.info("optDesc:[{}] Terminated", optDesc);
+				})
 				.flatMap(notUsed -> {
-					paramMap.put("insertTime", lastSyncTime.get());
+					paramMap.put(INSERT_TIME, lastSyncTime.get());
 					return Flux.fromIterable(
 							this.operationWithBackoffRetry(
 									optDesc, 
@@ -236,19 +239,55 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 				});
 	}
 	
+	protected ExponentialBackOff initLoadEventFailureRetryBackoff() {
+		long initialInterval = 200;			// 初始间隔
+		long maxInterval = 10 * 1000L;		// 最大间隔
+		long maxElapsedTime = 600 * 1000L;	// 最大时间间隔
+		double multiplier = 1.5;			// 递增倍数（即下次间隔是上次的多少倍）
+		ExponentialBackOff backOff = 
+				new ExponentialBackOff(
+						initialInterval,
+						multiplier);
+		backOff.setMaxInterval(maxInterval);
+		backOff.setMaxElapsedTime(maxElapsedTime);
+		return backOff;
+	}
+	
 	private ScheduledFuture<?> monitorEventOffsetDuringStuck(
 			String optDesc, 
-			StoredEventOffset storedEventOffset) {
+			StoredEventOffset storedEventOffset,
+			Set<String> awareEventTypes) {
+		MapSqlParameterSource parameterSource = 
+				new MapSqlParameterSource(
+						"awareTypes", 
+						awareEventTypes);
+		Function<LocalDateTime, Boolean> hasMoreEventJuedger = 
+				time -> {
+					parameterSource.addValue(INSERT_TIME, awareEventTypes);
+					Integer queryForObject = 
+							this.jdbcTemplate.queryForObject(
+									storedEventHasMoreLoadEventSql, 
+									parameterSource, 
+									Integer.class);
+					return 
+							queryForObject != null && queryForObject > 0;
+				};
 		int random = RandomUtils.nextInt(3111, 6666);
 		int storedEventLoadBatch = this.storedEventLoadBatch();
 		return this.scheduledExecutorService.scheduleWithFixedDelay(
 				() -> {
-					if (storedEventOffset.juedgeDuringLoadStuck()) {
-						log.warn(
-								"操作描述:[{}] 从DDD_STORED_EVENT加载新事件hang住了, 最后同步时间戳:{}. 当前storedEventLoadBatch:{} 请检查事件QPS是否过大, 适当调整该值", 
-								optDesc, 
-								storedEventOffset.getLastSyncTime(),
-								storedEventLoadBatch);
+					try {
+						LocalDateTime lastSyncTime = storedEventOffset.getLastSyncTime();
+						if (storedEventOffset.juedgeDuringLoadStuck()
+								&& hasMoreEventJuedger.apply(lastSyncTime)) {
+							log.warn(
+									"操作描述:[{}] 从DDD_STORED_EVENT加载新事件hang住了, 最后同步时间戳:{}. 当前storedEventLoadBatch:{} 请检查事件QPS是否过大, 适当调整该值", 
+									optDesc, 
+									lastSyncTime,
+									storedEventLoadBatch);
+						}
+					} catch (Exception e) {
+						e.printStackTrace();
 					}
 				}, 
 				random, 
@@ -285,7 +324,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 						optSupplier.get();
 			} catch (Exception e) {
 				if (execution == null) {
-					execution = backoff.start();
+					execution = backoffForRetryEventLoad.start();
 				}
 				long nextBackOff = execution.nextBackOff();
 				log.error(
