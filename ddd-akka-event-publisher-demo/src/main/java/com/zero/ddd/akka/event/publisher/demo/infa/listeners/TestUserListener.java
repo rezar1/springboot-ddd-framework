@@ -1,7 +1,5 @@
 package com.zero.ddd.akka.event.publisher.demo.infa.listeners;
 
-import java.util.concurrent.TimeUnit;
-
 import org.springframework.stereotype.Component;
 
 import com.zero.ddd.akka.event.publisher.demo.domain.users.dmEvents.DemoUserProfileChanged;
@@ -34,10 +32,8 @@ public class TestUserListener {
 			clientConcurrency = 1,
 			batchConsume = 
 				@BatchConsume(
-						useing = true,
 						batchSize = 1000,
-						timeWindows = 1000, 
-						timeWindowsUnit = TimeUnit.MILLISECONDS))
+						timeWindowMill = 1000l))
 	// @ShardingKeyExpression放在方法层级，表示所有的事件都按照相同的策略进行取值计算分区值，底层使用拼凑后的字符串的hash值进行计算分区值
 	// 允许参数级别单独制定事件自身的分区取值策略
 	// filterEl为事件过滤策略，表示只消费满足条件的事件

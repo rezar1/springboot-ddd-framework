@@ -5,6 +5,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import org.springframework.stereotype.Component;
+
 import com.zero.ddd.akka.cluster.job.annotations.DistributedJob;
 import com.zero.ddd.akka.cluster.job.annotations.JobScheduleTimeout;
 import com.zero.ddd.akka.cluster.job.annotations.JobScheduled;
@@ -31,7 +33,7 @@ import lombok.extern.slf4j.Slf4j;
  * @Desc 些年若许,不负芳华.
  *
  */
-//@Component
+@Component
 @Slf4j(topic = "job")
 public class DemoUserDisTask {
 	
