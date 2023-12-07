@@ -123,7 +123,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 						awareEventTypes);
 		String optDesc = 
 				"storedEventPublisher:[" + StringUtils.join(awareEventTypes, ",") + "]";
-		StoredEventOffset storedEventOffset = 
+		final StoredEventOffset storedEventOffset = 
 				new StoredEventOffset(
 						startAfterOffset
 						.map(timeStr -> LocalDateTime.parse(timeStr, TIME_FORMAT))
@@ -441,6 +441,11 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 		public synchronized void updateLastSyncTime(
 				LocalDateTime eventOffset) {
 			this.lastSyncTime = eventOffset;
+		}
+		
+		public synchronized LocalDateTime getLastSyncTime() {
+			return 
+					this.lastSyncTime;
 		}
 
 		public synchronized LocalDateTime lastSyncTime() {
