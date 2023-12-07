@@ -45,7 +45,7 @@ springboot-ddd-framework 提供了一些在中小型微服务集群内落地DDD�
 ## 依赖
 
 ```xml
-	<ddd.version>0.0.4-RELEASE</ddd.version>
+	<ddd.version>0.0.6-RELEASE</ddd.version>
 	
 	<dependency>
 		<groupId>com.zero.ddd</groupId>
