@@ -13,12 +13,16 @@ import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import javax.annotation.PreDestroy;
+
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.reactivestreams.Publisher;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 import org.springframework.jdbc.core.RowMapper;
@@ -57,6 +61,8 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 	private final String storedEventLoadSql;
 	private final String storedEventHasMoreLoadEventSql;
 	private final String partitionStoredEventLoadSql;
+	private final String storedEventHasMoreSameTimeLoadEventSql;
+	
 	private final Duration storedEventPullDuration;
 	private final Duration partitionEventPollDuration;
 	private final NamedParameterJdbcTemplate jdbcTemplate;
@@ -83,7 +89,11 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 						storedEventTable);
 		this.storedEventHasMoreLoadEventSql = 
 				String.format(
-						"select count(1) from %s where type_name in(:awareTypes) and insert_time >= :insertTime", 
+						"select count(1) from %s where type_name in(:awareTypes) and insert_time > :insertTime", 
+						storedEventTable);
+		this.storedEventHasMoreSameTimeLoadEventSql = 
+				String.format(
+						"select count(1) from %s where type_name in(:awareTypes) and insert_time = :insertTime", 
 						storedEventTable);
 		this.partitionStoredEventLoadSql = 
 				String.format(
@@ -95,7 +105,12 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 	}
 	
 	protected int storedEventLoadBatch() {
-		return 30000;
+		return 20000;
+	}
+	
+	@PreDestroy
+	public void onExit() {
+		this.scheduledExecutorService.shutdownNow();
 	}
 	
 	@Override
@@ -261,10 +276,10 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 				new MapSqlParameterSource(
 						"awareTypes", 
 						awareEventTypes);
-		Function<LocalDateTime, Boolean> hasMoreEventJuedger = 
+		Function<LocalDateTime, Pair<Boolean, Integer>> hasMoreEventJuedger = 
 				time -> {
 					if (time == null) {
-						return false;
+						return Pair.of(false, 0);
 					}
 					parameterSource.addValue(INSERT_TIME, time);
 					Integer queryForObject = 
@@ -272,29 +287,56 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 									storedEventHasMoreLoadEventSql, 
 									parameterSource, 
 									Integer.class);
+					if (queryForObject == null
+							|| queryForObject.intValue() == 0) {
+						queryForObject = 
+								this.jdbcTemplate.queryForObject(
+										this.storedEventHasMoreSameTimeLoadEventSql, 
+										parameterSource, 
+										Integer.class);
+						return 
+								Pair.of(
+										queryForObject != null && queryForObject > 1, 
+										queryForObject);
+					}
 					return 
-							queryForObject != null && queryForObject > 0;
+							Pair.of(
+									queryForObject != null && queryForObject > 0, 
+									queryForObject);
+				
 				};
-		int random = RandomUtils.nextInt(3333, 6666);
+		int randomScheduleFixedDelay = 
+				RandomUtils.nextInt(5555, 8888);
 		int storedEventLoadBatch = this.storedEventLoadBatch();
+		AtomicBoolean duringWarning = new AtomicBoolean(false);
 		return this.scheduledExecutorService.scheduleWithFixedDelay(
 				() -> {
 					try {
-						LocalDateTime lastSyncTime = null;
-						if (storedEventOffset.juedgeDuringLoadStuck()
-								&& hasMoreEventJuedger.apply(lastSyncTime = storedEventOffset.getLastSyncTime())) {
+						Pair<Boolean, Integer> countRes = null;
+						LocalDateTime lastSyncTime = storedEventOffset.getLastSyncTime();
+						if (storedEventOffset.juedgeDuringLoadStuckAndResetLoadToGtLastSyncTime()
+								&& (countRes = hasMoreEventJuedger.apply(lastSyncTime)).getLeft()) {
 							log.warn(
-									"操作描述:[{}] 从DDD_STORED_EVENT加载新事件可能hang住了, 最后同步时间戳:[{}]. 当前storedEventLoadBatch:{} 请检查事件QPS是否过大, 适当调整该值", 
+									"[{}] 从DDD_STORED_EVENT加载新事件可能hang住了, 最后事件同步时间戳:[{}], 后续堆积事件数:[{}] 当前storedEventLoadBatch:{} 请检查事件QPS是否过大(可能需要手动调整改值，抱歉)", 
+									optDesc, 
+									lastSyncTime,
+									countRes.getRight(),
+									storedEventLoadBatch);
+							duringWarning.set(true);
+						} else if (duringWarning.get()){
+							log.warn(
+									"[{}] 从DDD_STORED_EVENT加载新事件从【可能的hang住状态】恢复了, 最新事件同步时间戳:[{}]. 当前storedEventLoadBatch:{} ", 
 									optDesc, 
 									lastSyncTime,
 									storedEventLoadBatch);
+							duringWarning.set(false);
 						}
 					} catch (Exception e) {
 						log.error("monitorEventOffsetDuringStuck error:{}", e);
 					}
 				}, 
-				random, 
-				random,
+				randomScheduleFixedDelay, 
+				randomScheduleFixedDelay,
 				TimeUnit.MILLISECONDS);
 	}
 
@@ -372,7 +414,20 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 							LocalDateTime.now() : lastSyncTime;
 		}
 		
-		public synchronized boolean juedgeDuringLoadStuck() {
+		public synchronized boolean juedgeDuringLoadStuckAndResetLoadToGtLastSyncTime() {
+			/**
+			 * 如果3333~6666的毫秒周期内，事件的最后同步时间没有发生变化, 可能出现了卡顿
+			 * 
+			 * e.g. |------(5000-|-5000)-5000-|
+			 * 			   !0    !1	   !2
+			 * 假设每次加载1万的事件数
+			 * !1位置执行加载，获取到的事件范围为!0到!2的1万事件数，执行完毕后，lastSyncTime=!2。
+			 * lastSyncTime从!2位置时，往前推1秒，
+			 * 即 where insertTime >= (lastSyncTime-1秒), 获取的事件数量为1万，这一秒内的事件数也是1万，导致lastSyncTime无法往后更新，一直停留在!2的位置
+			 * 判断存在卡顿后，直接让加载流程从lastSyncTime往后加载，即加载条件变更为:where insertTime >= lastSyncTime, 
+			 * 同样的，如果lastSyncTime(毫秒精度)这同一时间点内的事件数超过1万，会继续导致卡顿。但一毫秒内的事件数超过{storedEventLoadBatch}的值，目前框架不考虑，😝。
+			 * 每次加载的事件数量可通过{storedEventLoadBatch}调整，目前默认为3万。
+			 */
 			if (freezedMonitorDateTime == null
 					|| freezedMonitorDateTime.isBefore(this.lastSyncTime)) {
 				this.freezedMonitorDateTime = this.lastSyncTime;

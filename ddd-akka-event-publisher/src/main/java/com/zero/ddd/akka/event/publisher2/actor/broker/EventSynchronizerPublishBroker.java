@@ -15,6 +15,7 @@ import com.google.common.cache.LoadingCache;
 import com.zero.ddd.akka.cluster.core.initializer.config.BlockingIODispatcherSelector;
 import com.zero.ddd.akka.cluster.core.initializer.serializer.SelfProtoBufObject;
 import com.zero.ddd.akka.event.publisher2.actor.ServiceKeyHolder;
+import com.zero.ddd.akka.event.publisher2.actor.consumer.EventSynchConsuemr.BatchPartitionEventCommand;
 import com.zero.ddd.akka.event.publisher2.actor.consumer.EventSynchConsuemr.EventSynchConsuemrEvent;
 import com.zero.ddd.akka.event.publisher2.actor.consumer.EventSynchConsuemr.PartitionEventCommand;
 import com.zero.ddd.akka.event.publisher2.domain.partitionEvent.PartitionEvent;
@@ -114,7 +115,7 @@ public class EventSynchronizerPublishBroker {
 		this.eventConsumerServiceKey = 
 				ServiceKeyHolder.eventConsumerServiceKey(
 						this.eventSynchronizerId);
-		this.initPartitionSinkActor();
+		this.initPartitionSinkActorCache();
 		this.registeAsSchedulerService();
 		this.subscribeEventConsumerService();
 		log.info(
@@ -131,37 +132,46 @@ public class EventSynchronizerPublishBroker {
 				.build();
 	}
 	
-	private void initPartitionSinkActor() {
+	private void initPartitionSinkActorCache() {
 		this.sinkActorRouteActorCache = 
 				SimpleCacheBuilder.instance(
-						partitionId -> {
-							return 
-									context.spawn(
-											Behaviors.supervise(
-													Behaviors.receive(
-															EventSynchronizerBrokerEvent.class)
-													.onMessage(BrokerRoutePartitionEvent.class, this::onBrokerRoutePartitionEvent)
-													.onMessage(BrokerRouteConsumerAckEvent.class, this::onBrokerRouteConsumerAckEvent)
-													.onMessage(BrokerRouteConsumerNeedStartPartitionEventSync.class, this::onBrokerRouteConsumerNeedStartPartitionEventSync)
-													.onMessage(BrokerRouteConsumerNeedCompletePartitionSync.class, this::onBrokerRouteConsumerNeedCompletePartitionSync)
-													.onMessage(BrokerRoutePartitionSinkFail.class, this::onBrokerRoutePartitionSinkFail)
-													.onSignal(
-										                      PreRestart.class,
-										                      signal -> {
-										                    	  log.info(
-																			"事件主题:[" + this.eventSynchronizerId + "] 分片:[" + partitionId + "] SinkRouter启动!!!");
-										                        return Behaviors.same();
-										                      })
-													.onSignal(PostStop.class, signal -> {
-														log.warn(
-																"事件主题:[" + this.eventSynchronizerId + "] 分片:[" + partitionId + "] SinkRouter停止!!!");
-									                    return Behaviors.same();
-									                })
-													.build())
-											.onFailure(Exception.class, SupervisorStrategy.restart()), 
-											eventSynchronizerId + "-SinkActor-" + partitionId,
-											BlockingIODispatcherSelector.defaultDispatcher());
-						});		
+						this::initPartitionSinkActor);
+	}
+
+	private ActorRef<EventSynchronizerBrokerEvent> initPartitionSinkActor(
+			int partitionId) {
+		return 
+				context.spawn(
+						Behaviors.supervise(
+								Behaviors.receive(
+										EventSynchronizerBrokerEvent.class)
+								.onMessage(BrokerRoutePartitionEvent.class, this::onBrokerRoutePartitionEvent)
+								.onMessage(BrokerRouteBatchPartitionEvent.class, this::onBrokerRouteBatchPartitionEvent)
+								.onMessage(BrokerRouteConsumerAckEvent.class, this::onBrokerRouteConsumerAckEvent)
+								.onMessage(BrokerRoutePartitionSinkFail.class, this::onBrokerRoutePartitionSinkFail)
+								.onMessage(BrokerRouteConsumerNeedCompletePartitionSync.class, this::onBrokerRouteConsumerNeedCompletePartitionSync)
+								.onMessage(BrokerRouteConsumerNeedStartPartitionEventSync.class, this::onBrokerRouteConsumerNeedStartPartitionEventSync)
+								.onSignal(
+					                      PreRestart.class,
+					                      signal -> {
+					                    	  log.info(
+														"事件主题:[" + this.eventSynchronizerId + "] 分区:[" + partitionId + "] 事件背压流启动!!!");
+					                        return Behaviors.same();
+					                      })
+								.onSignal(
+										PostStop.class, 
+										signal -> {
+											log.warn(
+													"事件主题:[" + this.eventSynchronizerId + "] 分区:[" + partitionId + "] 事件背压流停止!!!");
+						                    return Behaviors.same();
+						                })
+								.build())
+						.onFailure(
+								Exception.class, 
+								SupervisorStrategy.restart()), 
+						// sink Actor名称
+						eventSynchronizerId + "-SinkActor-" + partitionId,
+						BlockingIODispatcherSelector.defaultDispatcher());
 	}
 	
 	private ActorRef<EventSynchronizerBrokerEvent> partitionSinkActor(
@@ -209,6 +219,15 @@ public class EventSynchronizerPublishBroker {
 	
 	private Behavior<EventSynchronizerBrokerEvent> onBrokerRoutePartitionEvent(
 			BrokerRoutePartitionEvent event) {
+		this.onlineWorker.get(
+				event.getRouteToConsumerId())
+		.tell(
+				event.partitionEventCommand);
+		return Behaviors.same();
+	}
+	
+	private Behavior<EventSynchronizerBrokerEvent> onBrokerRouteBatchPartitionEvent(
+			BrokerRouteBatchPartitionEvent event) {
 		this.onlineWorker.get(
 				event.getRouteToConsumerId())
 		.tell(
@@ -324,115 +343,7 @@ public class EventSynchronizerPublishBroker {
 			this.partitionEventStore = partitionEventStore;
 			this.eventPublisherFactory = eventPublisherFactory;
 		}
-
-		void partitionEventRouteTo(
-				int partition,
-				String partitionEventRouteToConsumerId) {
-			if (this.partitionKillSwitchMap.containsKey(partition)) {
-				this.partitionKillSwitchMap.remove(partition).shutdown();
-			}
-			ActorRef<EventSynchronizerBrokerEvent> partitionSinkActor = partitionSinkActor(partition);
-			final Sink<PartitionStoredEventWrapper, NotUsed> sink = 
-					ActorSink.actorRefWithBackpressure(
-							partitionSinkActor,
-							(responseActorRef, element) -> {
-								StoredEvent partitionStoredEvent = element.getStoredEvent();
-								if (log.isDebugEnabled()) {
-									log.debug(
-											"事件主题:[{}] partition sink:{}-{}\toffset:{}", 
-											eventSynchronizerId,
-											partitionStoredEvent.getEventId(), 
-											partitionStoredEvent.getEventBody(),
-											element.getEventOffset());
-								}
-								return new BrokerRoutePartitionEvent(
-										partitionEventRouteToConsumerId,
-										new PartitionEventCommand(
-												partitionStoredEvent.getEventId(),
-												partitionStoredEvent.getTypeName(),
-												partitionStoredEvent.getEventBody(),
-												partitionStoredEvent.getEventTime(),
-												new BrokerRouteConsumerAckEvent(
-														partition,
-														element.getEventOffset(),
-														responseActorRef),
-												partitionSinkActor));
-							},
-							(responseActorRef) -> {
-								return new BrokerRouteConsumerNeedStartPartitionEventSync(
-										partitionEventRouteToConsumerId, 
-										partition, 
-										responseActorRef);
-							},
-							ACK.INSTANCE, 
-							new BrokerRouteConsumerNeedCompletePartitionSync(
-									partition),
-							(exception) -> {
-								log.error(
-										"事件主题:[" + eventSynchronizerId + "] partition:[" + partition + "] sink eror:{}", exception);
-								return 
-										new BrokerRoutePartitionSinkFail(
-												partition, 
-												exception);
-							});
-			UniqueKillSwitch killSwitch = 
-					Source.fromPublisher(
-							this.partitionEventPublisher(
-									partition))
-					.viaMat(
-							Flow.of(
-									PartitionStoredEventWrapper.class)
-							.joinMat(
-									KillSwitches.singleBidi(),
-									Keep.right()),
-							Keep.right())
-					.toMat(sink, Keep.left())
-					.run(this.materializer);
-			this.partitionKillSwitchMap.put(
-					partition, 
-					killSwitch);
-			log.info(
-					"事件主题:[{}] 开启分区:[{}] 的读取, 事件消费者:[{}]", 
-					eventSynchronizerId, 
-					partition, 
-					partitionEventRouteToConsumerId);
-		}
-
-		public void shutdown() {
-			if (this.storedEventSyncKillSwitch != null) {
-				this.storedEventSyncKillSwitch.shutdown();
-			}
-			this.partitionKillSwitchMap
-			.entrySet()
-			.stream()
-			.forEach(entry -> {
-				entry.getValue().shutdown();
-			});
-			log.info("事件主题:[{}] 退出完毕", eventSynchronizerId);
-		}
-
-		public void storePartitionEventConsumedOffset(
-				int partition, 
-				String consumedOffset) {
-			try {
-				this.iRecordLastOffsetId.saveLastOffset(
-						this.partitionStoredEventOffsetKey(partition),
-						consumedOffset);
-			} catch (Exception e) {
-				log.error("error storePartitionEventConsumedOffset:{}", e);
-			}
-		}
-
-		private Publisher<PartitionStoredEventWrapper> partitionEventPublisher(
-				int partition) {
-			return 
-					this.eventPublisherFactory.partitionEventPublisher(
-							eventSynchronizerId, 
-							partition,
-							this.iRecordLastOffsetId.lastOffset(
-									this.partitionStoredEventOffsetKey(partition)));
-		}
-
+		
 		void refreshEventSynchronizerConfig(
 				EventSynchronizer eventSynchronizer) {
 			if (!hasStart) {
@@ -504,6 +415,191 @@ public class EventSynchronizerPublishBroker {
 			log.info("事件主题:[{}] 开启分片事件的读取", eventSynchronizerId);
 		}
 
+		void partitionEventRouteTo(
+				int partition,
+				String partitionEventRouteToConsumerId) {
+			if (this.partitionKillSwitchMap.containsKey(partition)) {
+				this.partitionKillSwitchMap.remove(partition).shutdown();
+			}
+			var partitionSinkActor = partitionSinkActor(partition);
+			var joinKillSwitchesFlow = 
+					Flow.of(
+							PartitionStoredEventWrapper.class)
+					.joinMat(
+							KillSwitches.singleBidi(),
+							Keep.right());
+			Sink<PartitionStoredEventWrapper, UniqueKillSwitch> sink = 
+					state.batchEventConsumeConfig()
+					.map(config -> {
+						return 
+								joinKillSwitchesFlow
+								.groupedWithin(
+										config.getBatchSize(), 
+										config.getTimeWindow())
+								.toMat(
+										this.batchEventActorSink(
+												partition, 
+												partitionEventRouteToConsumerId,
+												partitionSinkActor), 
+										Keep.left());
+					})
+					.orElseGet(() -> {
+						return 
+								joinKillSwitchesFlow
+								.toMat(
+										this.singleEventActorSink(
+												partition, 
+												partitionEventRouteToConsumerId,
+												partitionSinkActor), 
+										Keep.left());
+					});
+			UniqueKillSwitch killSwitch = 
+					Source.fromPublisher(
+							this.partitionEventPublisher(
+									partition))
+					.toMat(sink, Keep.right())
+					.run(this.materializer);
+			this.partitionKillSwitchMap.put(
+					partition, 
+					killSwitch);
+			log.info(
+					"事件主题:[{}] 开启分区:[{}] 的读取, 事件消费者:[{}]", 
+					eventSynchronizerId, 
+					partition, 
+					partitionEventRouteToConsumerId);
+		}
+
+		private Sink<List<PartitionStoredEventWrapper>, NotUsed> batchEventActorSink(
+				int partition, 
+				String partitionEventRouteToConsumerId,
+				ActorRef<EventSynchronizerBrokerEvent> partitionSinkActor) {
+			return 
+					ActorSink.actorRefWithBackpressure(
+							partitionSinkActor,
+							(responseActorRef, element) -> {
+								String lastEventOffset = 
+										element.get(element.size() - 1)
+										.getEventOffset();
+								return new BrokerRouteBatchPartitionEvent(
+										partitionEventRouteToConsumerId,
+										new BatchPartitionEventCommand(
+												element.stream()
+												.map(PartitionStoredEventWrapper::getStoredEvent)
+												.collect(Collectors.toList()),
+												new BrokerRouteConsumerAckEvent(
+														partition,
+														lastEventOffset,
+														responseActorRef),
+												partitionSinkActor));
+							},
+							(responseActorRef) -> {
+								return new BrokerRouteConsumerNeedStartPartitionEventSync(
+										partitionEventRouteToConsumerId, 
+										partition, 
+										responseActorRef);
+							},
+							ACK.INSTANCE, 
+							new BrokerRouteConsumerNeedCompletePartitionSync(
+									partition),
+							(exception) -> {
+								log.error(
+										"事件主题:[" + eventSynchronizerId + "] partition:[" + partition + "] sink eror:{}", exception);
+								return 
+										new BrokerRoutePartitionSinkFail(
+												partition, 
+												exception);
+							});
+		}
+
+		private Sink<PartitionStoredEventWrapper, NotUsed> singleEventActorSink(
+				int partition,
+				String partitionEventRouteToConsumerId, 
+				ActorRef<EventSynchronizerBrokerEvent> partitionSinkActor) {
+			return 
+					ActorSink.actorRefWithBackpressure(
+							partitionSinkActor,
+							(responseActorRef, element) -> {
+								StoredEvent partitionStoredEvent = element.getStoredEvent();
+								if (log.isDebugEnabled()) {
+									log.debug(
+											"事件主题:[{}] partition sink:{}-{}\toffset:{}", 
+											eventSynchronizerId,
+											partitionStoredEvent.getEventId(), 
+											partitionStoredEvent.getEventBody(),
+											element.getEventOffset());
+								}
+								return new BrokerRoutePartitionEvent(
+										partitionEventRouteToConsumerId,
+										new PartitionEventCommand(
+												partitionStoredEvent.getEventId(),
+												partitionStoredEvent.getTypeName(),
+												partitionStoredEvent.getEventBody(),
+												partitionStoredEvent.getEventTime(),
+												new BrokerRouteConsumerAckEvent(
+														partition,
+														element.getEventOffset(),
+														responseActorRef),
+												partitionSinkActor));
+							},
+							(responseActorRef) -> {
+								return new BrokerRouteConsumerNeedStartPartitionEventSync(
+										partitionEventRouteToConsumerId, 
+										partition, 
+										responseActorRef);
+							},
+							ACK.INSTANCE, 
+							new BrokerRouteConsumerNeedCompletePartitionSync(
+									partition),
+							(exception) -> {
+								log.error(
+										"事件主题:[" + eventSynchronizerId + "] partition:[" + partition + "] sink eror:{}", exception);
+								return 
+										new BrokerRoutePartitionSinkFail(
+												partition, 
+												exception);
+							});
+		}
+
+		public void shutdown() {
+			if (this.storedEventSyncKillSwitch != null) {
+				this.storedEventSyncKillSwitch.shutdown();
+			}
+			this.partitionKillSwitchMap
+			.entrySet()
+			.stream()
+			.forEach(entry -> {
+				entry.getValue().shutdown();
+			});
+			log.info("事件主题:[{}] 退出完毕", eventSynchronizerId);
+		}
+
+		public void storePartitionEventConsumedOffset(
+				int partition, 
+				String consumedOffset) {
+			try {
+				this.iRecordLastOffsetId.saveLastOffset(
+						this.partitionStoredEventOffsetKey(partition),
+						consumedOffset);
+			} catch (Exception e) {
+				log.warn(
+						"事件主题:[{}] partition:[{}] consumedOffset:{} store failure:{}",
+						eventSynchronizerId,
+						partition,
+						consumedOffset);
+				log.error("error storePartitionEventConsumedOffset:{}", e);
+			}
+		}
+
+		private Publisher<PartitionStoredEventWrapper> partitionEventPublisher(
+				int partition) {
+			return 
+					this.eventPublisherFactory.partitionEventPublisher(
+							eventSynchronizerId, 
+							partition,
+							this.iRecordLastOffsetId.lastOffset(
+									this.partitionStoredEventOffsetKey(partition)));
+		}
+
 		private long partitionSize() {
 			return state.partitionCount();
 		}
@@ -541,6 +637,14 @@ public class EventSynchronizerPublishBroker {
 	public static class BrokerRoutePartitionEvent implements EventSynchronizerBrokerEvent {
 		private String routeToConsumerId;
 		private PartitionEventCommand partitionEventCommand;
+	}
+	
+	@Data
+	@NoArgsConstructor
+	@AllArgsConstructor
+	public static class BrokerRouteBatchPartitionEvent implements EventSynchronizerBrokerEvent {
+		private String routeToConsumerId;
+		private BatchPartitionEventCommand partitionEventCommand;
 	}
 	
 	@Data

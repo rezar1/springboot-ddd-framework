@@ -90,6 +90,7 @@ public class JobBeanProcessor implements BeanPostProcessor {
 		return bean;
 	}
 
+	@SuppressWarnings("deprecation")
 	private void processDistributedJob(
 			DistributedJob distributedJob, 
 			Method method, 

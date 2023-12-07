@@ -1,9 +1,12 @@
 package com.zero.ddd.akka.event.publisher.demo.infa.listeners;
 
+import java.util.concurrent.TimeUnit;
+
 import org.springframework.stereotype.Component;
 
 import com.zero.ddd.akka.event.publisher.demo.domain.users.dmEvents.DemoUserProfileChanged;
 import com.zero.ddd.akka.event.publisher.demo.domain.users.dmEvents.NewDemoUser;
+import com.zero.ddd.akka.event.publisher2.event.annotations.BatchConsume;
 import com.zero.ddd.akka.event.publisher2.event.annotations.EventAppServerName;
 import com.zero.ddd.akka.event.publisher2.event.annotations.EventSynchronizer;
 import com.zero.ddd.akka.event.publisher2.event.annotations.ShardingKeyExpression;
@@ -24,11 +27,17 @@ import lombok.extern.slf4j.Slf4j;
 public class TestUserListener {
 	
 	// 多机部署下，partition为【onDemoUserEventAndJustLog】关注的事件按照规则分区的数量
-	// clientConcurrency为单个服务实例启动消费【updateParticipantsBelongChain】事件的消费者的数量，确保(clientConcurrency * nodeCount) >= partition
-	// 消费者不是一个线程的概念，而是单独的Actor
+	// clientConcurrency为单个服务实例启动消费【updateParticipantsBelongChain】事件的消费者的数量，尽量(clientConcurrency * nodeCount) >= partition以避免多分区分配给单消费者上
+	// 消费者不是一个线程的概念，有点类似于forkjoin-pool的worker角色(单独的事件队列，没有工作窃取，共用调度线程池)
 	@EventSynchronizer(
-			partition = 6, 
-			clientConcurrency = 2)
+			partition = 1, 
+			clientConcurrency = 1,
+			batchConsume = 
+				@BatchConsume(
+						useing = true,
+						batchSize = 1000,
+						timeWindows = 1000, 
+						timeWindowsUnit = TimeUnit.MILLISECONDS))
 	// @ShardingKeyExpression放在方法层级，表示所有的事件都按照相同的策略进行取值计算分区值，底层使用拼凑后的字符串的hash值进行计算分区值
 	// 允许参数级别单独制定事件自身的分区取值策略
 	// filterEl为事件过滤策略，表示只消费满足条件的事件
@@ -42,7 +51,7 @@ public class TestUserListener {
 					filterEl = "#event[userProfile] != null")
 			DemoUserProfileChanged demoUserProfileChanged) {
 		if (newDemoUser != null) {
-			log.info("newDemoUser:{}", newDemoUser);
+//			log.info("newDemoUser:{}", newDemoUser);
 			// 其他业务逻辑调用
 		} else if (demoUserProfileChanged != null) {
 			log.info("demoUserProfileChanged:{}", demoUserProfileChanged);

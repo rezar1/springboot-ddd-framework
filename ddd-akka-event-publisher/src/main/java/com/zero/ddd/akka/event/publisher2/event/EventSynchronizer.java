@@ -7,6 +7,7 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.tuple.Pair;
 
+import com.zero.ddd.akka.event.publisher2.beanProcessor.EventSynchronizerBeanProcessor.EventBatchConfig;
 import com.zero.ddd.akka.event.publisher2.beanProcessor.EventSynchronizerBeanProcessor.EventTypeExpression;
 import com.zero.helper.GU;
 
@@ -37,6 +38,7 @@ public class EventSynchronizer {
 	private int partition;
 	private String synchornizerId;
 	private Set<String> awareEventTypes;
+	private EventBatchConfig eventBatchConsumeConfig;
 	private Map<String, EventTypeExpression> typeShardingHashValExpression;
 	
 	public EventSynchronizer(
@@ -44,7 +46,6 @@ public class EventSynchronizer {
 			int partition,
 			String synchornizerId, 
 			Set<String> awareEventTypes) {
-		super();
 		this.appName = appName;
 		this.partition = partition;
 		this.synchornizerId = synchornizerId;

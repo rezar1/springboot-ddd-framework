@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -13,6 +14,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.collect.Sets;
 import com.zero.ddd.akka.cluster.core.initializer.serializer.SelfProtoBufObject;
+import com.zero.ddd.akka.event.publisher2.beanProcessor.EventSynchronizerBeanProcessor.EventBatchConfig;
 import com.zero.ddd.akka.event.publisher2.event.EventSynchronizer;
 import com.zero.ddd.akka.event.publisher2.event.TypeFilterAndShardingHashValGenerator;
 import com.zero.ddd.akka.event.publisher2.helper.ConsistencyHashAlgorithm;
@@ -192,6 +194,12 @@ public class SynchronizerState implements SelfProtoBufObject, Cloneable {
 	@FunctionalInterface
 	public static interface ShardingHashValGenerator {
 		public long hashVal(String typeName, String eventBody);
+	}
+
+	public Optional<EventBatchConfig> batchEventConsumeConfig() {
+		return 
+				Optional.ofNullable(
+						this.eventSynchronizer.getEventBatchConsumeConfig());
 	}
 
 }

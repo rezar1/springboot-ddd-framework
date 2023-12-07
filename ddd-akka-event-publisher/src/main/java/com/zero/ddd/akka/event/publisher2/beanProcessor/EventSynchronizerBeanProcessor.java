@@ -2,6 +2,7 @@ package com.zero.ddd.akka.event.publisher2.beanProcessor;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
@@ -23,6 +24,7 @@ import com.google.common.collect.Sets;
 import com.zero.ddd.akka.event.publisher2.event.CustomizedEventSynchronizer;
 import com.zero.ddd.akka.event.publisher2.event.EventFunctionInvoker;
 import com.zero.ddd.akka.event.publisher2.event.MultiArgsEventFunctionInvoker;
+import com.zero.ddd.akka.event.publisher2.event.annotations.BatchConsume;
 import com.zero.ddd.akka.event.publisher2.event.annotations.EventAppServerName;
 import com.zero.ddd.akka.event.publisher2.event.annotations.EventSynchronizer;
 import com.zero.ddd.akka.event.publisher2.event.annotations.ShardingKeyExpression;
@@ -146,6 +148,9 @@ public class EventSynchronizerBeanProcessor implements BeanPostProcessor {
 						.appName(appServerName)
 						.synchornizerId(synchronizerId)
 						.partition(eventSynchronizer.partition())
+						.eventBatchConsumeConfig(
+								this.buildBatchEventConsumeConfig(
+										eventSynchronizer.batchConsume()))
 						.typeShardingHashValExpression(expressionMap)
 						.awareEventTypes(
 								Arrays.asList(
@@ -157,6 +162,22 @@ public class EventSynchronizerBeanProcessor implements BeanPostProcessor {
 				.concurrency(eventSynchronizer.clientConcurrency())
 				.eventFunctionInvoker(functionInvoker)
 				.build());
+	}
+
+	private EventBatchConfig buildBatchEventConsumeConfig(
+			BatchConsume batchConsume) {
+		return 
+				Optional.ofNullable(batchConsume)
+				.filter(BatchConsume::useing)
+				.map(configAnnt -> {
+					return 
+							new EventBatchConfig(
+									Duration.ofMillis(
+											configAnnt.timeWindowsUnit().toMillis(
+													configAnnt.timeWindows())),
+									configAnnt.batchSize());
+				})
+				.orElse(null);
 	}
 
 	private Map<String, EventTypeExpression> parseTypeShardingKeyExpressionMap(
@@ -210,6 +231,14 @@ public class EventSynchronizerBeanProcessor implements BeanPostProcessor {
 	public static class EventTypeExpression {
 		private String shardingValEl;
 		private String filterEl;
+	}
+	
+	@Data
+	@NoArgsConstructor
+	@AllArgsConstructor
+	public static class EventBatchConfig {
+		private Duration timeWindow;
+		private int batchSize;
 	}
 
 	private EventSynchronizer findDistributedJobAnnotations(Method method) {

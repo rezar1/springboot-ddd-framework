@@ -32,7 +32,8 @@ public @interface DistributedJob {
 	// 作业执行模式
 	JobExecuteType jobExecuteType() default JobExecuteType.MAP; 
 	
-	// 最小执行节点数
+	// 最小执行节点数(暂未开放)
+	@Deprecated
 	int minWorkerCount() default 1;
 	
 	// 并行度

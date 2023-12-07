@@ -36,15 +36,17 @@ public class EventPublisherDemoAppTest {
 	@Test
 	public void testSome() throws InterruptedException {
 		TimeUnit.SECONDS.sleep(10);
-		IntStream.range(30, 40)
+		int companyId = (int) System.nanoTime();
+		IntStream.range(0, 1000)
+		.parallel()
 		.forEach(index -> {
 			this.testUserApp.registeDemoUser(
-					new CompanyId(1),
+					new CompanyId(companyId),
 					new UserId(index),
 					new UserProfile("Rezar", "https://profile-avatar.csdnimg.cn/e9455bf5671243e383f3e3ffdcd16ece_sinat_29131797.jpg!1"),
 					Arrays.asList(new UserAddress("北京", "海淀", "xxxxx")));
 		});
-		TimeUnit.SECONDS.sleep(60);
+		TimeUnit.SECONDS.sleep(69);
 	}
 	
 }

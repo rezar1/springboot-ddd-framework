@@ -42,5 +42,5 @@ public interface EventPublisherFactory {
 		private final String eventOffset;
 		private final StoredEvent storedEvent;
 	}
-
+	
 }
