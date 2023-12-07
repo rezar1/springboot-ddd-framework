@@ -39,7 +39,6 @@ import com.zero.helper.GU;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 
@@ -398,7 +397,6 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 				rs.getTimestamp("event_time").toLocalDateTime());
 	}
 	
-	@Getter
 	// 竞争不大
 	public static class StoredEventOffset {
 		
