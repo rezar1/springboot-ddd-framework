@@ -37,6 +37,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 
@@ -46,6 +47,7 @@ import lombok.RequiredArgsConstructor;
  * @Desc 些年若许,不负芳华.
  * 
  */
+@Slf4j
 @RequiredArgsConstructor
 public class EventSynchronizerBeanProcessor implements BeanPostProcessor {
 	
@@ -169,12 +171,20 @@ public class EventSynchronizerBeanProcessor implements BeanPostProcessor {
 		return 
 				Optional.ofNullable(batchConsume)
 				.filter(BatchConsume::useing)
+				.filter(configAnnt -> {
+					boolean valid = 
+							configAnnt.batchSize() > 0 && configAnnt.batchSize() < 2000  && configAnnt.timeWindowMill() >= 1 && configAnnt.timeWindowMill() <= 15000;
+					if (!valid) {
+						log.warn("BatchConsume 配置非法:{}, batchSize在[1, 2000} 且 timeWindowMill在[1, 15000}", configAnnt.toString());
+					}
+					return 
+							valid;
+				})
 				.map(configAnnt -> {
 					return 
 							new EventBatchConfig(
 									Duration.ofMillis(
-											configAnnt.timeWindowsUnit().toMillis(
-													configAnnt.timeWindows())),
+											configAnnt.timeWindowMill()),
 									configAnnt.batchSize());
 				})
 				.orElse(null);
