@@ -18,6 +18,6 @@ import lombok.NoArgsConstructor;
 public class RateLimiterConfig {
 	
 	private String rateLimiterName;
-	private int permitsPerSecond;
+	private double permitsPerSecond;
 
 }

@@ -6,7 +6,7 @@ import org.junit.Test;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Ticker;
-import com.zero.ddd.akka.ratelimiter.limiter.guava.DefaultSleepingStopwatch;
+import com.zero.ddd.akka.ratelimiter.limiter.ReteLimiterStopwatch;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -23,13 +23,13 @@ public class StopwatchTest {
 	
 	@Test
 	public void test() throws InterruptedException {
-		DefaultSleepingStopwatch watch1 = new DefaultSleepingStopwatch();
+		ReteLimiterStopwatch watch1 = new ReteLimiterStopwatch();
 		TimeUnit.SECONDS.sleep(2);
 		long elapsed = 
 				watch1.readMicros();
 		log.info("elapsed watch1:{}", elapsed);
-		DefaultSleepingStopwatch watch2 = 
-				new DefaultSleepingStopwatch(elapsed);
+		ReteLimiterStopwatch watch2 = 
+				new ReteLimiterStopwatch(elapsed);
 		log.info("elapsed watch2:{}", watch2.readMicros());
 	}
 	

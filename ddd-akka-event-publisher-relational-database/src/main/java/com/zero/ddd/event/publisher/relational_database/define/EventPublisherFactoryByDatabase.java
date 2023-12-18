@@ -400,10 +400,10 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 	// 竞争不大
 	public static class StoredEventOffset {
 		
-		private volatile LocalDateTime lastSyncTime;
-		private volatile boolean startFromCurrent;
+		private LocalDateTime lastSyncTime;
+		private boolean startFromCurrent;
 		
-		private volatile LocalDateTime freezedMonitorDateTime;
+		private LocalDateTime freezedMonitorDateTime;
 		
 		public StoredEventOffset(
 				LocalDateTime lastSyncTime) {

@@ -1,4 +1,4 @@
-package com.zero.ddd.akka.ratelimiter.limiter.guava;
+package com.zero.ddd.akka.ratelimiter.limiter;
 
 import com.zero.ddd.akka.ratelimiter.state.RateLimiterRunningState;
 

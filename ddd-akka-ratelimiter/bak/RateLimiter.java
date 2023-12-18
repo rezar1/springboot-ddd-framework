@@ -1,4 +1,4 @@
-package com.zero.ddd.akka.ratelimiter.limiter.guava;
+package com.zero.ddd.akka.ratelimiter.limiter;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -323,14 +323,12 @@ public abstract class RateLimiter {
 		long timeoutMicros = max(unit.toMicros(timeout), 0);
 		checkPermits(permits);
 		long microsToWait;
-		synchronized (mutex()) {
-			long nowMicros = stopwatch.readMicros();
-			if (!canAcquire(nowMicros, timeoutMicros)) {
-				return false;
-			} else {
-				microsToWait = 
-						this.reserveAndGetWaitLength(permits, nowMicros);
-			}
+		long nowMicros = stopwatch.readMicros();
+		if (!canAcquire(nowMicros, timeoutMicros)) {
+			return false;
+		} else {
+			microsToWait = 
+					this.reserveAndGetWaitLength(permits, nowMicros);
 		}
 		stopwatch.sleepMicrosUninterruptibly(microsToWait);
 		return true;

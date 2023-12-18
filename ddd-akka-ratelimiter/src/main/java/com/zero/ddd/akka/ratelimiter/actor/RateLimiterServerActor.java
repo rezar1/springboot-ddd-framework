@@ -1,9 +1,12 @@
 package com.zero.ddd.akka.ratelimiter.actor;
 
 import java.time.Duration;
+import java.util.concurrent.ExecutionException;
 
-import com.zero.ddd.akka.ratelimiter.limiter.guava.RateLimiter;
-import com.zero.ddd.akka.ratelimiter.limiter.guava.RunningStateExposedSmoothBursty;
+import com.zero.ddd.akka.cluster.core.helper.ClientAskRemoteExecutorConfig;
+import com.zero.ddd.akka.ratelimiter.actor.RateLimiterClientActor.AcquirePermitsResp;
+import com.zero.ddd.akka.ratelimiter.actor.RateLimiterClientActor.TryAcquirePermitsResp;
+import com.zero.ddd.akka.ratelimiter.limiter.VisitRateLimiter;
 import com.zero.ddd.akka.ratelimiter.state.RateLimiterRunningState;
 import com.zero.ddd.akka.ratelimiter.state.StateDatabase;
 import com.zero.ddd.akka.ratelimiter.state.vo.RateLimiterConfig;
@@ -12,6 +15,7 @@ import akka.actor.typed.ActorRef;
 import akka.actor.typed.Behavior;
 import akka.actor.typed.SupervisorStrategy;
 import akka.actor.typed.delivery.ConsumerController;
+import akka.actor.typed.delivery.ConsumerController.Confirmed;
 import akka.actor.typed.javadsl.AbstractBehavior;
 import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
@@ -135,7 +139,7 @@ public class RateLimiterServerActor {
 		private final ActorContext<RateLimiterServerCommand> context;
 		
 		private RateLimiterRunningState state;
-		private RateLimiter rateLimiter;
+		private VisitRateLimiter rateLimiter;
 		
 		public Active(
 				RateLimiterConfig rateLimiterConfig,
@@ -145,9 +149,9 @@ public class RateLimiterServerActor {
 			this.context = context;
 			this.rateLimiterConfig = rateLimiterConfig;
 			this.rateLimiter = 
-					RunningStateExposedSmoothBursty.create(
-							state, 
-							rateLimiterConfig.getPermitsPerSecond());
+					this.initRateLimiter(
+							rateLimiterConfig.getPermitsPerSecond(),
+							state);
 			this.rateLimiterStateDatabase = rateLimiterStateDatabase;
 			this.registeAsSchedulerService();
 			log.info(
@@ -168,18 +172,65 @@ public class RateLimiterServerActor {
 			if (command instanceof TryAcquirePermitsCommand) {
 				TryAcquirePermitsCommand tryAcquireCmd =
 						(TryAcquirePermitsCommand) delivery.command;
-				this.rateLimiter.tryAcquire(
-						tryAcquireCmd.permits, 
-						tryAcquireCmd.timeout);
+				long tryAcquireNeedSleepMicro = 
+						this.rateLimiter.tryAcquire(
+								tryAcquireCmd.permits, 
+								tryAcquireCmd.timeout);
+				tryAcquireCmd.acquireReplyTo
+				.tell(
+						new TryAcquirePermitsResp(
+								tryAcquireNeedSleepMicro));
 			} else if(command instanceof AcquirePermitsCommand) {
 				AcquirePermitsCommand acquireCmd = 
 						(AcquirePermitsCommand) delivery.command;
-				this.rateLimiter.acquire(
-						acquireCmd.permits);
+				long acquire = 
+						this.rateLimiter.acquire(
+								acquireCmd.permits);
+				acquireCmd.acquireReplyTo
+				.tell(
+						new AcquirePermitsResp(acquire));
+			} else {
+				return Behaviors.unhandled();
 			}
+			this.saveState(
+					delivery.confirmTo);
 			return Behaviors.same();
 		}
 		
+		private void saveState(
+				ActorRef<Confirmed> confirmTo) {
+			try {
+				String rateLimiterName = this.rateLimiterConfig.getRateLimiterName();
+				this.rateLimiterStateDatabase.updateRateLimiterRunningState(
+						rateLimiterName,
+						state)
+				.whenCompleteAsync(
+						(done, error) -> {
+							if (done != null) {
+								this.confirmToClient(confirmTo);
+							} else {
+								log.error("限流器:[" + rateLimiterName + "] 状态更新异常", error);
+								throw new IllegalStateException(
+										"限流器:[" + rateLimiterName + "] 状态更新异常",
+										error);
+							}
+						}, 
+						ClientAskRemoteExecutorConfig.askRemoteExecutor())
+				.toCompletableFuture()
+				.get();
+			} catch (InterruptedException | ExecutionException e) {
+				e.printStackTrace();
+			}
+		}
+
+		private void confirmToClient(
+				ActorRef<Confirmed> confirmTo) {
+			if (confirmTo != null) {
+				confirmTo.tell(
+						ConsumerController.confirmed());
+			}
+		}
+
 		private void registeAsSchedulerService() {
 			this.context
 			.getSystem()
@@ -191,19 +242,36 @@ public class RateLimiterServerActor {
 							this.context.getSelf()));
 		}
 		
+		private VisitRateLimiter initRateLimiter(
+				double permitsPerSecond, 
+				RateLimiterRunningState state) {
+			if (state != null
+					&& permitsPerSecond != state.getPermitsPerSecond()) {
+				state = null;
+			}
+			if (state == null) {
+				return 
+						VisitRateLimiter.create(permitsPerSecond);
+			}
+			return 
+					VisitRateLimiter.create(state);
+		}
+		
 	}
 	
 	// -------- 接口/命令类定义 --------
 	
 	public static interface RateLimiterServerCommand extends RateLimiterCommand {}
 	
-	private static class TryAcquirePermitsCommand implements RateLimiterServerCommand {
+	static class TryAcquirePermitsCommand implements RateLimiterServerCommand {
 		private int permits;
 		private Duration timeout;
+		private ActorRef<TryAcquirePermitsResp> acquireReplyTo;
 	} 
 	
-	private static class AcquirePermitsCommand implements RateLimiterServerCommand {
+	static class AcquirePermitsCommand implements RateLimiterServerCommand {
 		private int permits;
+		private ActorRef<AcquirePermitsResp> acquireReplyTo;
 	} 
 	
 	private static class CommandDelivery implements RateLimiterServerCommand {
@@ -217,6 +285,7 @@ public class RateLimiterServerActor {
 			this.command = command;
 			this.confirmTo = confirmTo;
 		}
+		
 	}
 	
 	private static class InitialState implements RateLimiterServerCommand {

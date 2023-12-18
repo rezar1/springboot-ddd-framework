@@ -1,5 +1,8 @@
 package com.zero.ddd.akka.ratelimiter.actor;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * 
@@ -12,5 +15,29 @@ package com.zero.ddd.akka.ratelimiter.actor;
 public class RateLimiterClientActor {
 	
 	
+	
+	// -------- 接口/命令类定义 --------
+	public static interface RateLimiterClientCommand extends RateLimiterCommand {}
+	
+	@Data
+	@NoArgsConstructor
+	@AllArgsConstructor
+	static class TryAcquirePermitsResp implements RateLimiterClientCommand {
+		
+		public TryAcquirePermitsResp(
+				long tryAcquireNeedSleepMicro) {
+			this.trySucc = tryAcquireNeedSleepMicro >= 0;
+			this.sleepMicro = tryAcquireNeedSleepMicro;
+		}
+		private boolean trySucc;
+		private long sleepMicro;
+	} 
+	
+	@Data
+	@NoArgsConstructor
+	@AllArgsConstructor
+	static class AcquirePermitsResp implements RateLimiterClientCommand {
+		private long sleepMicro;
+	} 
 
 }

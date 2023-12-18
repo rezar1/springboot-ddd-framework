@@ -1,10 +1,9 @@
-package com.zero.ddd.akka.ratelimiter.limiter.guava;
+package com.zero.ddd.akka.ratelimiter.limiter;
 
 import static java.lang.Math.min;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 import com.google.common.math.LongMath;
-import com.zero.ddd.akka.ratelimiter.state.RateLimiterRunningState;
 
 /**
  * 
@@ -58,7 +57,9 @@ public abstract class SmoothRateLimiter extends RateLimiter {
 	}
 
 	@Override
-	protected final void doSetRate(double permitsPerSecond, long nowMicros) {
+	protected final void doSetRate(
+			double permitsPerSecond, 
+			long nowMicros) {
 		resync(nowMicros);
 		double stableIntervalMicros = SECONDS.toMicros(1L) / permitsPerSecond;
 		this.stableIntervalMicros = stableIntervalMicros;
@@ -125,15 +126,6 @@ public abstract class SmoothRateLimiter extends RateLimiter {
 			storedPermits = min(maxPermits, storedPermits + newPermits);
 			nextFreeTicketMicros = nowMicros;
 		}
-	}
-	
-	public RateLimiterRunningState runningState() {
-		return 
-				new RateLimiterRunningState(
-						storedPermits,
-						maxPermits,
-						stableIntervalMicros,
-						nextFreeTicketMicros);
 	}
 	
 }

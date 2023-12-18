@@ -2,7 +2,7 @@ package com.zero.ddd.akka.ratelimiter;
 
 import org.junit.Test;
 
-import com.zero.ddd.akka.ratelimiter.limiter.guava.RateLimiter;
+import com.zero.ddd.akka.ratelimiter.limiter.RateLimiter;
 
 
 /**

@@ -1,5 +1,7 @@
 package com.zero.ddd.akka.ratelimiter.state;
 
+import com.zero.ddd.akka.ratelimiter.limiter.RateLimiterState;
+
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -15,13 +17,19 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class RateLimiterRunningState {
-	
+public class RateLimiterRunningState implements RateLimiterState {
+
 	/**
 	 * 已启动的微秒值
 	 */
 	private long elapsedMicros;
-	
+
+	/**
+	 * The interval between two unit requests, at our stable rate. E.g., a stable
+	 * rate of 5 permits per second has a stable interval of 200ms.
+	 */
+	private double permitsPerSecond;
+
 	/**
 	 * The currently stored permits.
 	 */
@@ -31,12 +39,6 @@ public class RateLimiterRunningState {
 	 * The maximum number of stored permits.
 	 */
 	private double maxPermits;
-
-	/**
-	 * The interval between two unit requests, at our stable rate. E.g., a stable
-	 * rate of 5 permits per second has a stable interval of 200ms.
-	 */
-	private double stableIntervalMicros;
 
 	/**
 	 * The time when the next request (no matter its size) will be granted. After
