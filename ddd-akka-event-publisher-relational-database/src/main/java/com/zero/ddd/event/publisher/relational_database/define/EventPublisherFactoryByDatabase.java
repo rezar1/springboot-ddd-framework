@@ -344,7 +344,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 	@Override
 	public void storedEventPublisherShutdown(
 			String eventSynchronizerId) {
-		EventPublisherFactory.super.storedEventPublisherShutdown(eventSynchronizerId);
+		log.info("事件同步器:[{}] 停止加载", eventSynchronizerId);
 		Optional.ofNullable(
 				this.cancenFutureMap.remove(
 						eventSynchronizerId))
