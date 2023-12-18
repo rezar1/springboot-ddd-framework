@@ -20,7 +20,9 @@ import lombok.Data;
  */
 public interface EventPublisherFactory {
 	
+	
 	public Publisher<StoredEventWrapper> storedEventPublisher(
+			String eventSynchronizerId,
 			Optional<String> startAfterOffset, 
 			Set<String> awareEventTypes);
 	
@@ -41,6 +43,11 @@ public interface EventPublisherFactory {
 	public static class PartitionStoredEventWrapper {
 		private final String eventOffset;
 		private final StoredEvent storedEvent;
+	}
+
+	public default void storedEventPublisherShutdown(
+			String eventSynchronizerId) {
+		
 	}
 	
 }

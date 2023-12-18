@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -21,7 +22,6 @@ import java.util.function.Supplier;
 import javax.annotation.PreDestroy;
 
 import org.apache.commons.lang3.RandomUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.reactivestreams.Publisher;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
@@ -70,6 +70,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 	private final RowMapper<StoredEventTimeWrapper> storedEventRowMapper;
 	private final RowMapper<PartitionStoredEventTimeWrapper> partitionEventRowMapper;
 	
+	private final ConcurrentHashMap<String, ScheduledFuture<?>> cancenFutureMap = new ConcurrentHashMap<>();
 	
 	public EventPublisherFactoryByDatabase(
 			NamedParameterJdbcTemplate jdbcTemplate,
@@ -114,24 +115,23 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 	
 	@Override
 	public Publisher<StoredEventWrapper> storedEventPublisher(
+			String eventSynchronizerId,
 			Optional<String> startAfterOffset,
 			Set<String> awareEventTypes) {
 		MapSqlParameterSource parameterSource = 
 				new MapSqlParameterSource(
 						"awareTypes", 
 						awareEventTypes);
-		String optDesc = 
-				"storedEventPublisher:[" + StringUtils.join(awareEventTypes, ",") + "]";
+		String optDesc = eventSynchronizerId;
 		final StoredEventOffset storedEventOffset = 
 				new StoredEventOffset(
 						startAfterOffset
 						.map(timeStr -> LocalDateTime.parse(timeStr, TIME_FORMAT))
 						.orElseGet(LocalDateTime::now));
-		ScheduledFuture<?> scheduleWithFixedDelay = 
-				this.monitorEventOffsetDuringStuck(
-						optDesc,
-						storedEventOffset,
-						awareEventTypes);
+		this.monitorEventOffsetDuringStuck(
+				eventSynchronizerId,
+				storedEventOffset,
+				awareEventTypes);
 		final ThreadSafeRoaring64Bitmap storedEventBitMap = new ThreadSafeRoaring64Bitmap();
 		return 
 				Flux.interval(
@@ -142,10 +142,6 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 												180))))
 				.onBackpressureDrop(ticket -> {
 					log.warn("optDesc:[{}] 消费速率慢，丢弃当前轮次的调度，等待下一次调度", optDesc);
-				})
-				.doOnTerminate(() -> {
-					scheduleWithFixedDelay.cancel(true);
-					log.info("optDesc:[{}] Terminated", optDesc);
 				})
 				.flatMap(notUsed -> {
 					parameterSource.addValue(
@@ -187,7 +183,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 									event.storedEvent);
 				});
 	}
-
+	
 	@Override
 	public Publisher<PartitionStoredEventWrapper> partitionEventPublisher(
 			String eventSynchronizerId, 
@@ -267,10 +263,13 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 		return backOff;
 	}
 	
-	private ScheduledFuture<?> monitorEventOffsetDuringStuck(
-			String optDesc, 
+	private void monitorEventOffsetDuringStuck(
+			String eventSynchronizerId, 
 			StoredEventOffset storedEventOffset,
 			Set<String> awareEventTypes) {
+		if (cancenFutureMap.containsKey(eventSynchronizerId)) {
+			return;
+		}
 		MapSqlParameterSource parameterSource = 
 				new MapSqlParameterSource(
 						"awareTypes", 
@@ -308,35 +307,51 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 				RandomUtils.nextInt(5555, 8888);
 		int storedEventLoadBatch = this.storedEventLoadBatch();
 		AtomicBoolean duringWarning = new AtomicBoolean(false);
-		return this.scheduledExecutorService.scheduleWithFixedDelay(
-				() -> {
-					try {
-						Pair<Boolean, Integer> countRes = null;
-						LocalDateTime lastSyncTime = storedEventOffset.getLastSyncTime();
-						if (storedEventOffset.juedgeDuringLoadStuckAndResetLoadToGtLastSyncTime()
-								&& (countRes = hasMoreEventJuedger.apply(lastSyncTime)).getLeft()) {
-							log.warn(
-									"[{}] 从DDD_STORED_EVENT加载新事件可能hang住了, 最后事件同步时间戳:[{}], 后续堆积事件数:[{}] 当前storedEventLoadBatch:{} 请检查事件QPS是否过大(可能需要手动调整改值，抱歉)", 
-									optDesc, 
-									lastSyncTime,
-									countRes.getRight(),
-									storedEventLoadBatch);
-							duringWarning.set(true);
-						} else if (duringWarning.get()){
-							log.warn(
-									"[{}] 从DDD_STORED_EVENT加载新事件从【可能的hang住状态】恢复了, 最新事件同步时间戳:[{}]. 当前storedEventLoadBatch:{} ", 
-									optDesc, 
-									lastSyncTime,
-									storedEventLoadBatch);
-							duringWarning.set(false);
-						}
-					} catch (Exception e) {
-						log.error("monitorEventOffsetDuringStuck error:{}", e);
-					}
-				}, 
-				randomScheduleFixedDelay, 
-				randomScheduleFixedDelay,
-				TimeUnit.MILLISECONDS);
+		ScheduledFuture<?> scheduleWithFixedDelay = 
+				this.scheduledExecutorService.scheduleWithFixedDelay(
+						() -> {
+							try {
+								Pair<Boolean, Integer> countRes = null;
+								LocalDateTime lastSyncTime = storedEventOffset.getLastSyncTime();
+								if (storedEventOffset.juedgeDuringLoadStuckAndResetLoadToGtLastSyncTime()
+										&& (countRes = hasMoreEventJuedger.apply(lastSyncTime)).getLeft()) {
+									log.warn(
+											"[{}] 从DDD_STORED_EVENT加载新事件可能hang住了, 最后事件同步时间戳:[{}], 后续堆积事件数:[{}] 当前storedEventLoadBatch:{} 请检查事件QPS是否过大(可能需要手动调整改值，抱歉)", 
+											eventSynchronizerId, 
+											lastSyncTime,
+											countRes.getRight(),
+											storedEventLoadBatch);
+									duringWarning.set(true);
+								} else if (duringWarning.get()){
+									log.warn(
+											"[{}] 从DDD_STORED_EVENT加载新事件从【可能的hang住状态】恢复了, 最新事件同步时间戳:[{}]. 当前storedEventLoadBatch:{} ", 
+											eventSynchronizerId, 
+											lastSyncTime,
+											storedEventLoadBatch);
+									duringWarning.set(false);
+								}
+							} catch (Exception e) {
+								log.error("monitorEventOffsetDuringStuck error:{}", e);
+							}
+						}, 
+						randomScheduleFixedDelay, 
+						randomScheduleFixedDelay,
+						TimeUnit.MILLISECONDS);
+		this.cancenFutureMap.put(eventSynchronizerId, scheduleWithFixedDelay);
+		log.info("事件同步器:[{}] 开启加载表记录卡顿检查任务", eventSynchronizerId);
+	}
+
+	@Override
+	public void storedEventPublisherShutdown(
+			String eventSynchronizerId) {
+		EventPublisherFactory.super.storedEventPublisherShutdown(eventSynchronizerId);
+		Optional.ofNullable(
+				this.cancenFutureMap.remove(
+						eventSynchronizerId))
+		.ifPresent(future -> {
+			future.cancel(true);
+			log.info("事件同步器:[{}] 停止加载表记录卡顿检查任务", eventSynchronizerId);
+		});
 	}
 
 	private RowMapper<StoredEventTimeWrapper> dddStoredEventRowMapper() {
