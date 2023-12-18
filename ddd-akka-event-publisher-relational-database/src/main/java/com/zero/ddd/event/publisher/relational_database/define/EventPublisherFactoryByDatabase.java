@@ -132,7 +132,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 						optDesc,
 						storedEventOffset,
 						awareEventTypes);
-		Roaring64Bitmap storedEventBitMap = new Roaring64Bitmap();
+		final ThreadSafeRoaring64Bitmap storedEventBitMap = new ThreadSafeRoaring64Bitmap();
 		return 
 				Flux.interval(
 						storedEventPullDuration.plus(
@@ -193,7 +193,7 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 			String eventSynchronizerId, 
 			int partition,
 			Optional<String> startAfterOffset) {
-		Roaring64Bitmap partitionStoredEventBitMap = new Roaring64Bitmap();
+		ThreadSafeRoaring64Bitmap partitionStoredEventBitMap = new ThreadSafeRoaring64Bitmap();
 		AtomicReference<String> lastSyncTime = 
 				new AtomicReference<String>(
 						startAfterOffset
@@ -455,6 +455,20 @@ public class EventPublisherFactoryByDatabase implements EventPublisherFactory {
 			}
 		}
 		
+	}
+	
+	public static class ThreadSafeRoaring64Bitmap {
+		
+		private Roaring64Bitmap bitMap = new Roaring64Bitmap();
+
+		public synchronized boolean contains(long eventIdVal) {
+			return 
+					this.bitMap.contains(eventIdVal);
+		}
+
+		public synchronized void addLong(long eventIdVal) {
+			this.bitMap.addLong(eventIdVal);
+		}
 	}
 	
 	@Data
