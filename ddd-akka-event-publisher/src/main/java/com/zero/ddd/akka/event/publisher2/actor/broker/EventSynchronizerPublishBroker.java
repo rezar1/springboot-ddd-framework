@@ -563,6 +563,7 @@ public class EventSynchronizerPublishBroker {
 		public void shutdown() {
 			if (this.storedEventSyncKillSwitch != null) {
 				this.storedEventSyncKillSwitch.shutdown();
+				this.eventPublisherFactory.storedEventPublisherShutdown(eventSynchronizerId);
 			}
 			this.partitionKillSwitchMap
 			.entrySet()
@@ -614,6 +615,7 @@ public class EventSynchronizerPublishBroker {
 					lastOffset.orElse(""));
 			return 
 					this.eventPublisherFactory.storedEventPublisher(
+							eventSynchronizerId, 
 							lastOffset,
 							state.awareTypes());
 		}

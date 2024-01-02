@@ -57,6 +57,7 @@ public class EventPublisherFactoryByMongodb implements EventPublisherFactory {
 
 	@Override
 	public Publisher<StoredEventWrapper> storedEventPublisher(
+			String eventSynchronizerId,
 			Optional<String> startAfterOffset,
 			Set<String> awareEventTypes) {
 		AtomicReference<String> lastResumeToken = 
