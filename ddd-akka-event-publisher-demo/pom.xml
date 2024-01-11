@@ -7,7 +7,7 @@
 	<parent>
 		<groupId>com.zero.ddd</groupId>
 		<artifactId>ddd-parent</artifactId>
-		<version>0.0.6-RELEASE</version>
+		<version>0.0.6-SNAPSHOT</version>
 	</parent>
 	<artifactId>ddd-akka-event-publisher-demo</artifactId>
 	<name>ddd-akka-event-publisher-demo</name>
